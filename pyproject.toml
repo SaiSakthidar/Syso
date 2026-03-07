@@ -1,0 +1,49 @@
+[project]
+name = "gemini_hack"
+version = "0.1.0"
+description = "System Monitoring application"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Google LLC" }
+]
+
+dependencies = [
+    "google-adk>=1.20.0",
+    "fastapi>=0.115.0",
+    "python-dotenv>=1.0.0",
+    "uvicorn[standard]>=0.32.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+extend = "../../../pyproject.toml"
+
+[tool.ruff.lint]
+ignore = ["C901", "PLR0915"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["agent", "gemini_hack"]
+
+[tool.uv]
+dev-dependencies = []
+
+[tool.hatch.build.targets.wheel]
+packages = ["agent"]
+
+[tool.hatch.build.targets.wheel.shared-data]
+"agent/static" = "share/gemini_hack/static"
+"agent/.env" = "share/gemini_hack/.env.template"
