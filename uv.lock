@@ -440,9 +440,6 @@ requires-dist = [
 ]
 provides-extras = ["dev"]
 
-[package.metadata.requires-dev]
-dev = []
-
 [[package]]
 name = "google-adk"
 version = "1.26.0"
