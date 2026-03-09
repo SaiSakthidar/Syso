@@ -101,10 +101,19 @@ class SystemCaretakerClient:
                 elif payload.type == "tool_action":
                     await self._handle_tool_action(payload)
 
-                # NOTE: Phase 5 will add "agent_audio" handling
+                elif payload.type == "agent_audio":
+                    if hasattr(self, "audio_pipeline") and self.audio_pipeline:
+                        self.audio_pipeline.queue_playback(payload.audio_bytes)
+                        self.on_log(
+                            "SYSTEM",
+                            f"Queuing received audio chunk (~{len(payload.audio_bytes) // 1024}KB) for playback.",
+                        )
 
             except Exception as e:
                 self.on_log("ERROR", f"Invalid payload from server: {e}")
+
+    def set_audio_pipeline(self, pipeline):
+        self.audio_pipeline = pipeline
 
     async def _handle_tool_action(self, action: ServerToolAction):
         self.on_log(

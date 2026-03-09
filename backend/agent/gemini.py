@@ -1,6 +1,6 @@
 import uuid
 import logging
-from typing import Dict, Any
+from typing import Dict
 import os
 
 import google.generativeai as genai
@@ -66,7 +66,12 @@ class GeminiOrchestrator:
                 await self._send_to_gemini(content)
 
             elif payload.type == "image":
-                part = {"mime_type": "image/jpeg", "data": payload.image_bytes}
+                part = {
+                    "inline_data": {
+                        "mime_type": "image/jpeg",
+                        "data": payload.image_bytes,
+                    }
+                }
                 content = [part]
                 if self.latest_metrics:
                     content.append(
@@ -75,8 +80,23 @@ class GeminiOrchestrator:
                 await self._send_to_gemini(content)
 
             elif payload.type == "audio":
-                # Assuming PCM or WAV audio bytes depending on the client PyAudio
-                part = {"mime_type": "audio/wav", "data": payload.audio_bytes}
+                import io
+                import wave
+
+                # The user spoke to us! We provide the audio and expect AUDIO back.
+                wav_io = io.BytesIO()
+                with wave.open(wav_io, "wb") as wf:
+                    wf.setnchannels(1)
+                    wf.setsampwidth(2)
+                    wf.setframerate(16000)  # pvporcupine rate is specifically 16kHz
+                    wf.writeframes(payload.audio_bytes)
+
+                # The old 0.4.1 SDK requires dict dictionaries for inline data to be specifically
+                # structured and often base_64 encoded depending on the abstraction layer.
+                # Actually, according to google.ai.generativelanguage Part:
+                part = {
+                    "inline_data": {"mime_type": "audio/wav", "data": wav_io.getvalue()}
+                }
                 content = [part]
                 if self.latest_metrics:
                     content.append(
@@ -134,3 +154,22 @@ class GeminiOrchestrator:
             # Then check for text
             elif text := part.text:
                 await self.send_to_client(ServerText(text=text))
+
+                # Generate edge-tts audio and send ServerAudio
+                try:
+                    import edge_tts
+                    import io
+
+                    communicate = edge_tts.Communicate(text, "en-US-AriaNeural")
+                    audio_io = io.BytesIO()
+                    async for chunk in communicate.stream():
+                        if chunk["type"] == "audio":
+                            audio_io.write(chunk["data"])
+
+                    audio_bytes = audio_io.getvalue()
+                    if len(audio_bytes) > 0:
+                        from shared.schemas import ServerAudio
+
+                        await self.send_to_client(ServerAudio(audio_bytes=audio_bytes))
+                except Exception as e:
+                    logger.error(f"TTS generation error: {e}")
