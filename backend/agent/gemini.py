@@ -1,6 +1,7 @@
 import uuid
 import logging
 from typing import Dict, Any
+import os
 
 import google.generativeai as genai
 from google.ai.generativelanguage import Part, FunctionResponse
@@ -22,6 +23,8 @@ class GeminiOrchestrator:
     def __init__(self, websocket):
         self.websocket = websocket
 
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
         system_instruction = (
             "You are 'System Caretaker', an automatic system operator and caretaker. "
             "You help monitor system vitals, handle user queries (text/audio), and use tools to manage their OS. "
@@ -29,11 +32,18 @@ class GeminiOrchestrator:
             "Be helpful, proactive, and concise. Don't be too verbose unless explicitly asked to."
         )
         self.model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",  # Use flash for speed
+            model_name="gemini-2.5-flash-lite",  # Use flash for speed
             tools=system_tools,
-            system_instruction=system_instruction,
         )
-        self.chat = self.model.start_chat(enable_automatic_function_calling=False)
+
+        # We start the chat with the system prompt injected into the history since 0.4.1 doesn't support system_instruction
+        self.chat = self.model.start_chat(
+            history=[
+                {"role": "user", "parts": [system_instruction]},
+                {"role": "model", "parts": ["Understood. I am your System Caretaker."]},
+            ],
+            enable_automatic_function_calling=False,
+        )
         self.pending_tool_calls: Dict[str, str] = {}
         self.latest_metrics = None
 

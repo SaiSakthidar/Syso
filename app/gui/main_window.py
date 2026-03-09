@@ -36,11 +36,15 @@ class MainWindow(ctk.CTk):
 
     def _handle_user_input(self, text: str):
         # Fallback manual text input handling
-        print(f"User entered text: {text}")
+        from shared.schemas import ClientText
+
         self.debug_panel.append_log(
             f"Handling manual text command: '{text}'", level="SYSTEM"
         )
-        # TODO in Phase 4: Put this text into a queue to the WebSocket client thread!
+        if hasattr(self, "ws_client") and self.ws_client:
+            self.ws_client.enqueue_payload(ClientText(text=text))
+        else:
+            self.debug_panel.append_log("WS Client not attached yet.", level="ERROR")
 
     def add_ui_job(self, job_fn):
         """Thread-safe way to update UI from daemon threads."""
