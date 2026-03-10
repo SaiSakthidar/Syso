@@ -91,7 +91,7 @@ class SystemCaretakerClient:
                 payload: WsServerPayload = _server_payload_adapter.validate_python(data)
 
                 if payload.type == "agent_text":
-                    self.on_chat_msg("System Caretaker", payload.text)
+                    self.on_chat_msg("System Caretaker", payload.text, payload.is_chunk)
 
                 elif payload.type == "error":
                     self.on_log(

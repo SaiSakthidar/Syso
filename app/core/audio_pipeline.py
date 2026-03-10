@@ -199,40 +199,72 @@ class AudioPipeline:
                 audio_stream.close()
 
     def _playback_loop(self):
+        """
+        Playback loop with two paths:
+        - Raw PCM bytes (Gemini Live API) → written directly to a persistent
+          PyAudio output stream for gapless, low-latency playback.
+        - WAV / MP3 (legacy encoded audio) → pygame music player.
+        """
+        # Persistent PyAudio output stream for 24kHz 16-bit mono PCM
+        pcm_stream = None
+        try:
+            pcm_stream = self.pa.open(
+                format=pyaudio.paInt16,
+                channels=1,
+                rate=24000,  # Gemini Live API native output rate
+                output=True,
+                frames_per_buffer=1024,
+            )
+        except Exception as e:
+            self.on_log("ERROR", f"Failed to open PCM playback stream: {e}")
+
         pygame.mixer.init()
 
         while self.running:
             try:
                 audio_bytes = self.playback_queue.get(timeout=1.0)
+                self.is_playing = True
 
-                if not self.is_playing:
-                    self.is_playing = True
+                is_wav = audio_bytes[:4] == b"RIFF"
+                is_mp3 = audio_bytes[:3] == b"ID3" or audio_bytes[:2] == b"\xff\xfb"
 
-                with tempfile.NamedTemporaryFile(
-                    delete=False, suffix=".mp3"
-                ) as tmp_file:
-                    tmp_file.write(audio_bytes)
-                    tmp_name = tmp_file.name
-
-                try:
-                    pygame.mixer.music.load(tmp_name)
-                    pygame.mixer.music.play()
-
-                    while pygame.mixer.music.get_busy() and self.is_playing:
-                        time.sleep(0.1)
-
-                    pygame.mixer.music.stop()
-                    pygame.mixer.music.unload()
-                except Exception as e:
-                    self.on_log("ERROR", f"Pygame playback error: {e}")
-
-                try:
-                    os.remove(tmp_name)
-                except Exception:
-                    pass
+                if is_wav or is_mp3:
+                    # Legacy encoded audio: use pygame
+                    suffix = ".wav" if is_wav else ".mp3"
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as f:
+                        f.write(audio_bytes)
+                        tmp_name = f.name
+                    try:
+                        pygame.mixer.music.load(tmp_name)
+                        pygame.mixer.music.play()
+                        while pygame.mixer.music.get_busy() and self.is_playing:
+                            time.sleep(0.05)
+                        pygame.mixer.music.stop()
+                        pygame.mixer.music.unload()
+                    except Exception as e:
+                        self.on_log("ERROR", f"Pygame playback error: {e}")
+                    try:
+                        os.remove(tmp_name)
+                    except Exception:
+                        pass
+                else:
+                    # Raw PCM → write directly into the open PyAudio stream (no gaps)
+                    if pcm_stream and pcm_stream.is_active():
+                        try:
+                            pcm_stream.write(audio_bytes)
+                        except Exception as e:
+                            self.on_log("ERROR", f"PCM stream write error: {e}")
 
             except queue.Empty:
                 if self.playback_queue.empty() and self.is_playing:
                     self.is_playing = False
             except Exception as e:
                 self.on_log("ERROR", f"Playback thread error: {e}")
+
+        # Cleanup
+        if pcm_stream:
+            try:
+                pcm_stream.stop_stream()
+                pcm_stream.close()
+            except Exception:
+                pass

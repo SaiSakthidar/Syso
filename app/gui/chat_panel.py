@@ -7,6 +7,8 @@ class ChatPanel(ctk.CTkFrame):
         super().__init__(master, **kwargs)
 
         self.on_submit = on_submit
+        self.last_sender = None
+        self.was_last_chunk = False
 
         # Layout styling
         self.grid_rowconfigure(1, weight=1)  # Chat history takes up most space
@@ -61,9 +63,32 @@ class ChatPanel(ctk.CTkFrame):
             self.input_entry.delete(0, "end")
             self.on_submit(text)
 
-    def append_message(self, sender: str, message: str):
+    def append_message(self, sender: str, message: str, is_chunk: bool = False):
         self.chat_history.configure(state="normal")
-        self.chat_history.insert("end", f"{sender}: {message}\n\n")
+
+        if is_chunk:
+            if self.last_sender == sender:
+                self.chat_history.insert("end", message)
+            else:
+                # If there was a previous message from a different sender, ensure newline
+                if self.last_sender is not None:
+                    self.chat_history.insert("end", f"\n\n{sender}: {message}")
+                else:
+                    self.chat_history.insert("end", f"{sender}: {message}")
+        else:
+            if self.last_sender == sender and self.was_last_chunk:
+                self.chat_history.insert("end", f"{message}\n\n")
+            elif self.last_sender == sender:
+                self.chat_history.insert("end", f"{message}\n\n")
+            else:
+                if self.last_sender is not None:
+                    self.chat_history.insert("end", f"\n\n{sender}: {message}\n\n")
+                else:
+                    self.chat_history.insert("end", f"{sender}: {message}\n\n")
+
+        self.last_sender = sender
+        self.was_last_chunk = is_chunk
+
         self.chat_history.see("end")
         self.chat_history.configure(state="disabled")
 

@@ -2,9 +2,10 @@ import uuid
 import logging
 from typing import Dict
 import os
+import asyncio
 
-import google.generativeai as genai
-from google.ai.generativelanguage import Part, FunctionResponse
+from google import genai
+from google.genai import types
 
 from backend.agent.tools_schema import system_tools
 from shared.schemas import (
@@ -13,6 +14,7 @@ from shared.schemas import (
     ServerText,
     ServerToolAction,
     ServerError,
+    ServerAudio,
 )
 from backend.router.parser import serialize_server_payload
 
@@ -23,153 +25,218 @@ class GeminiOrchestrator:
     def __init__(self, websocket):
         self.websocket = websocket
 
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        self.client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-        system_instruction = (
+        self.system_instruction = (
             "You are 'System Caretaker', an automatic system operator and caretaker. "
             "You help monitor system vitals, handle user queries (text/audio), and use tools to manage their OS. "
             "You have access to current system metrics provided by the user. "
             "Be helpful, proactive, and concise. Don't be too verbose unless explicitly asked to."
         )
-        self.model = genai.GenerativeModel(
-            model_name="gemini-2.5-flash-lite",  # Use flash for speed
-            tools=system_tools,
-        )
 
-        # We start the chat with the system prompt injected into the history since 0.4.1 doesn't support system_instruction
-        self.chat = self.model.start_chat(
-            history=[
-                {"role": "user", "parts": [system_instruction]},
-                {"role": "model", "parts": ["Understood. I am your System Caretaker."]},
-            ],
-            enable_automatic_function_calling=False,
-        )
         self.pending_tool_calls: Dict[str, str] = {}
         self.latest_metrics = None
+
+        # Queues for decoupling the FastAPI handler from the Gemini session loop
+        self._send_queue: asyncio.Queue = asyncio.Queue()
+        self._session_task: asyncio.Task | None = None
+        self._session_ready = asyncio.Event()
+
+    # -------------------------------------------------------------------------
+    # Public interface
+    # -------------------------------------------------------------------------
+
+    async def start(self):
+        """Launches the persistent session loop as a background task."""
+        if self._session_task and not self._session_task.done():
+            return
+        self._session_ready.clear()
+        self._session_task = asyncio.create_task(self._session_loop())
+        await self._session_ready.wait()
+
+    async def handle_client_payload(self, payload: WsClientPayload):
+        try:
+            if not self._session_task or self._session_task.done():
+                await self.start()
+
+            if payload.type == "metrics":
+                self.latest_metrics = payload.data
+                return
+
+            elif payload.type == "text":
+                text = payload.text
+                if self.latest_metrics:
+                    text += f"\n[System State]: {self.latest_metrics.model_dump_json()}"
+                await self._send_queue.put(("text", text))
+
+            elif payload.type == "image":
+                parts = [
+                    {
+                        "inline_data": {
+                            "mime_type": "image/jpeg",
+                            "data": payload.image_bytes,
+                        }
+                    }
+                ]
+                if self.latest_metrics:
+                    parts.append(
+                        {
+                            "text": f"[System Metrics]: {self.latest_metrics.model_dump_json()}"
+                        }
+                    )
+                await self._send_queue.put(("content", parts))
+
+            elif payload.type == "audio":
+                await self._send_queue.put(("audio", payload.audio_bytes))
+
+            elif payload.type == "tool_result":
+                if payload.call_id not in self.pending_tool_calls:
+                    logger.warning(f"Unknown tool result call_id: {payload.call_id}")
+                    return
+                tool_name = self.pending_tool_calls.pop(payload.call_id)
+                await self._send_queue.put(
+                    (
+                        "tool_result",
+                        (payload.call_id, tool_name, payload.status, payload.message),
+                    )
+                )
+
+        except Exception as e:
+            logger.error(f"Error handling payload: {e}", exc_info=True)
+            await self.send_to_client(
+                ServerError(error_msg=f"Agent Request Error: {str(e)}")
+            )
 
     async def send_to_client(self, payload: WsServerPayload):
         raw_bytes = serialize_server_payload(payload)
         await self.websocket.send_bytes(raw_bytes)
 
-    async def handle_client_payload(self, payload: WsClientPayload):
-        try:
-            if payload.type == "metrics":
-                self.latest_metrics = payload.data
-                # We do not forward metrics unconditionally, we just keep them handy.
+    async def close(self):
+        if self._session_task:
+            self._session_task.cancel()
 
-            elif payload.type == "text":
-                content = [payload.text]
-                if self.latest_metrics:
-                    content.append(
-                        f"[Current System State]: {self.latest_metrics.model_dump_json()}"
-                    )
-                await self._send_to_gemini(content)
+    # -------------------------------------------------------------------------
+    # Session management
+    # -------------------------------------------------------------------------
 
-            elif payload.type == "image":
-                part = {
-                    "inline_data": {
-                        "mime_type": "image/jpeg",
-                        "data": payload.image_bytes,
-                    }
-                }
-                content = [part]
-                if self.latest_metrics:
-                    content.append(
-                        f"[Current System Metrics]: {self.latest_metrics.model_dump_json()}"
-                    )
-                await self._send_to_gemini(content)
-
-            elif payload.type == "audio":
-                import io
-                import wave
-
-                # The user spoke to us! We provide the audio and expect AUDIO back.
-                wav_io = io.BytesIO()
-                with wave.open(wav_io, "wb") as wf:
-                    wf.setnchannels(1)
-                    wf.setsampwidth(2)
-                    wf.setframerate(16000)  # pvporcupine rate is specifically 16kHz
-                    wf.writeframes(payload.audio_bytes)
-
-                # The old 0.4.1 SDK requires dict dictionaries for inline data to be specifically
-                # structured and often base_64 encoded depending on the abstraction layer.
-                # Actually, according to google.ai.generativelanguage Part:
-                part = {
-                    "inline_data": {"mime_type": "audio/wav", "data": wav_io.getvalue()}
-                }
-                content = [part]
-                if self.latest_metrics:
-                    content.append(
-                        f"[Current System Metrics]: {self.latest_metrics.model_dump_json()}"
-                    )
-                await self._send_to_gemini(content)
-
-            elif payload.type == "tool_result":
-                if payload.call_id not in self.pending_tool_calls:
-                    logger.warning(
-                        f"Received unknown tool result call_id: {payload.call_id}"
-                    )
-                    return
-
-                tool_name = self.pending_tool_calls.pop(payload.call_id)
-                response_part = Part(
-                    function_response=FunctionResponse(
-                        name=tool_name,
-                        response={"status": payload.status, "message": payload.message},
-                    )
+    async def _session_loop(self):
+        """
+        Keeps the Gemini Live API connection alive for the duration of this WebSocket.
+        The `async with` block MUST stay open — the session closes when we exit it.
+        """
+        config = types.LiveConnectConfig(
+            system_instruction=types.Content(
+                parts=[types.Part.from_text(text=self.system_instruction)]
+            ),
+            tools=system_tools,
+            response_modalities=["AUDIO"],
+            speech_config=types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Aoede")
                 )
-                await self._send_to_gemini(response_part)
-        except Exception as e:
-            logger.error(f"Error handling payload: {e}", exc_info=True)
-            await self.send_to_client(ServerError(error_msg=f"Agent Error: {str(e)}"))
-
-    async def _send_to_gemini(self, content):
+            ),
+            output_audio_transcription=types.AudioTranscriptionConfig(),
+        )
         try:
-            response = await self.chat.send_message_async(content)
-            await self._process_gemini_response(response)
-        except Exception as e:
-            logger.error(f"Gemini API Error: {e}")
-            await self.send_to_client(
-                ServerError(error_msg=f"Gemini API Error: {str(e)}")
-            )
+            async with self.client.aio.live.connect(
+                model="gemini-2.5-flash-native-audio-latest", config=config
+            ) as session:
+                logger.info("Connected to Gemini Multimodal Live API.")
+                self._session_ready.set()
 
-    async def _process_gemini_response(self, response):
-        if not response.parts:
-            return
+                send_task = asyncio.create_task(self._send_loop(session))
+                recv_task = asyncio.create_task(self._receive_loop(session))
 
-        for part in response.parts:
-            # Check for tool call first
-            if fn := part.function_call:
-                call_id = str(uuid.uuid4())
-                self.pending_tool_calls[call_id] = fn.name
-
-                # Extract args safely to a standard dict
-                args_dict = type(fn).to_dict(fn).get("args", {})
-
-                tool_action = ServerToolAction(
-                    call_id=call_id, tool_name=fn.name, tool_args=args_dict
+                done, pending = await asyncio.wait(
+                    [send_task, recv_task], return_when=asyncio.FIRST_COMPLETED
                 )
-                await self.send_to_client(tool_action)
+                for t in pending:
+                    t.cancel()
 
-            # Then check for text
-            elif text := part.text:
-                await self.send_to_client(ServerText(text=text))
+        except asyncio.CancelledError:
+            logger.info("Session loop cancelled.")
+        except Exception as e:
+            logger.error(f"Session loop error: {e}", exc_info=True)
+            self._session_ready.set()  # Unblock start() so handle_client_payload doesn't hang
+            await self.send_to_client(ServerError(error_msg=f"Session Error: {str(e)}"))
 
-                # Generate edge-tts audio and send ServerAudio
-                try:
-                    import edge_tts
-                    import io
+    async def _send_loop(self, session):
+        """Drains the send queue and forwards messages to Gemini using the modern API."""
+        while True:
+            kind, data = await self._send_queue.get()
+            try:
+                if kind == "text":
+                    await session.send_client_content(
+                        turns=[{"role": "user", "parts": [{"text": data}]}],
+                        turn_complete=True,
+                    )
+                elif kind == "content":
+                    # data is a list of parts (e.g. image + text)
+                    await session.send_client_content(
+                        turns=[{"role": "user", "parts": data}],
+                        turn_complete=True,
+                    )
+                elif kind == "audio":
+                    # Raw PCM 16kHz, streamed as realtime input
+                    await session.send_realtime_input(
+                        audio=types.Blob(data=data, mime_type="audio/pcm;rate=16000")
+                    )
+                elif kind == "tool_result":
+                    call_id, tool_name, status, message = data
+                    await session.send_tool_response(
+                        function_responses=[
+                            types.FunctionResponse(
+                                name=tool_name,
+                                id=call_id,
+                                response={"status": status, "message": message},
+                            )
+                        ]
+                    )
+            except Exception as e:
+                logger.error(f"Send error (kind={kind}): {e}", exc_info=True)
 
-                    communicate = edge_tts.Communicate(text, "en-US-AriaNeural")
-                    audio_io = io.BytesIO()
-                    async for chunk in communicate.stream():
-                        if chunk["type"] == "audio":
-                            audio_io.write(chunk["data"])
+    async def _receive_loop(self, session):
+        """Receives streaming audio/transcription/tool-calls from Gemini and proxies to client."""
+        try:
+            async for response in session.receive():
+                sc = response.server_content
+                if sc is not None:
+                    # Audio chunks — primary output modality
+                    if sc.model_turn is not None:
+                        for part in sc.model_turn.parts:
+                            if part.inline_data is not None:
+                                if part.inline_data.mime_type.startswith("audio/pcm"):
+                                    await self.send_to_client(
+                                        ServerAudio(audio_bytes=part.inline_data.data)
+                                    )
+                            # Tool calls (rare on model_turn for native audio but handle it)
+                            if part.function_call is not None:
+                                await self._dispatch_tool_call(part.function_call)
 
-                    audio_bytes = audio_io.getvalue()
-                    if len(audio_bytes) > 0:
-                        from shared.schemas import ServerAudio
+                    # Transcription of the model's spoken audio — this drives the chat text
+                    if sc.output_transcription is not None:
+                        text = sc.output_transcription.text
+                        if text:
+                            await self.send_to_client(
+                                ServerText(text=text, is_chunk=True)
+                            )
 
-                        await self.send_to_client(ServerAudio(audio_bytes=audio_bytes))
-                except Exception as e:
-                    logger.error(f"TTS generation error: {e}")
+                # Tool calls can also come as a top-level field on the response
+                if response.tool_call is not None:
+                    for fn in response.tool_call.function_calls:
+                        await self._dispatch_tool_call(fn)
+
+        except asyncio.CancelledError:
+            logger.info("Receive loop cancelled.")
+        except Exception as e:
+            logger.error(f"Receive loop error: {e}", exc_info=True)
+            await self.send_to_client(ServerError(error_msg=f"Receive Error: {str(e)}"))
+
+    async def _dispatch_tool_call(self, fn):
+        call_id = fn.id or str(uuid.uuid4())
+        tool_name = fn.name
+        self.pending_tool_calls[call_id] = tool_name
+        args_dict = fn.args if fn.args else {}
+        await self.send_to_client(
+            ServerToolAction(call_id=call_id, tool_name=tool_name, tool_args=args_dict)
+        )

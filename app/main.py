@@ -25,8 +25,8 @@ def main():
     def on_log(level, msg):
         app.add_ui_job(lambda: app.debug_panel.append_log(msg, level=level))
 
-    def on_chat_msg(sender, msg):
-        app.add_ui_job(lambda: app.chat_panel.append_message(sender, msg))
+    def on_chat_msg(sender, msg, is_chunk=False):
+        app.add_ui_job(lambda: app.chat_panel.append_message(sender, msg, is_chunk))
 
     def on_wake_word(state: bool):
         app.add_ui_job(lambda: app.chat_panel.set_wake_word_status(state))
