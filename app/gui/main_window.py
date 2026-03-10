@@ -24,8 +24,46 @@ class MainWindow(ctk.CTk):
 
         self._create_widgets()
 
+        # Intercept window close to hide to tray
+        self.protocol("WM_DELETE_WINDOW", self._hide_to_tray)
+
         # Start checking the queue for updates
         self.after(100, self._process_ui_queue)
+
+    def _hide_to_tray(self):
+        self.withdraw()  # Hide UI
+        self._spawn_tray_icon()
+
+    def _spawn_tray_icon(self):
+        from PIL import Image, ImageDraw
+        import pystray
+        import threading
+
+        # Generate a cool default icon on the fly
+        image = Image.new("RGB", (64, 64), color=(30, 30, 30))
+        draw = ImageDraw.Draw(image)
+        draw.ellipse((16, 16, 48, 48), fill=(0, 150, 255))
+        draw.ellipse((24, 24, 40, 40), fill=(255, 255, 255))
+
+        def show_window(icon, item):
+            icon.stop()
+            self.after(0, self.deiconify)  # Safely bring back UI on main thread
+
+        def quit_app(icon, item):
+            icon.stop()
+            self.after(0, self.quit)  # Stop mainloop, cleanly terminating everything
+
+        menu = pystray.Menu(
+            pystray.MenuItem("Show UI", show_window, default=True),
+            pystray.MenuItem("Quit Daemon", quit_app),
+        )
+
+        self.tray_icon = pystray.Icon(
+            "system_caretaker", image, "System Caretaker", menu
+        )
+
+        # Run pystray blocking loop in a bg thread
+        threading.Thread(target=self.tray_icon.run, daemon=True).start()
 
     def _create_widgets(self):
         self.chat_panel = ChatPanel(self, on_submit=self._handle_user_input)
