@@ -94,5 +94,60 @@ system_tools = [
                 required=["service_name", "action"],
             ),
         ),
+        types.FunctionDeclaration(
+            name="set_system_volume",
+            description="Sets the master audio volume on the user's system.",
+            parameters=types.Schema(
+                type="OBJECT",
+                properties={
+                    "percent": types.Schema(type="INTEGER", description="The volume level to set (0-100)."),
+                },
+                required=["percent"],
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="set_system_brightness",
+            description="Sets the screen brightness on the user's system.",
+            parameters=types.Schema(
+                type="OBJECT",
+                properties={
+                    "percent": types.Schema(type="INTEGER", description="The brightness level to set (0-100)."),
+                },
+                required=["percent"],
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="set_system_theme",
+            description="Sets the system-wide visual theme to either 'dark' or 'light'.",
+            parameters=types.Schema(
+                type="OBJECT",
+                properties={
+                    "theme": types.Schema(type="STRING", description="The theme mode to apply: 'dark' or 'light'."),
+                },
+                required=["theme"],
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="manage_wifi",
+            description="Turns the Wi-Fi adapter on or off.",
+            parameters=types.Schema(
+                type="OBJECT",
+                properties={
+                    "action": types.Schema(type="STRING", description="The desired Wi-Fi state: 'on' or 'off'."),
+                },
+                required=["action"],
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="manage_bluetooth",
+            description="Turns the Bluetooth adapter on or off.",
+            parameters=types.Schema(
+                type="OBJECT",
+                properties={
+                    "action": types.Schema(type="STRING", description="The desired Bluetooth state: 'on' or 'off'."),
+                },
+                required=["action"],
+            ),
+        ),
     ])
 ]
