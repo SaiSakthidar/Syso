@@ -19,7 +19,7 @@ A lightweight daemon and GUI running locally on the system you want to manage.
 A scalable `FastAPI` service hosting persistent WebSockets and acting as the middleman between the Native App and the AI framework.
 * **Comms**: High-performance Binary WebSockets marshaling data instantly using `MsgPack`.
 * **Routing**: Parses inbound Multimodal packets (System Spikes, Text, Audio, Images) and formats them into strict schema contexts for Gemini.
-* **AI Engine**: Powered by `google-generativeai` utilizing `gemini-2.5-flash-lite`.
+* **AI Engine**: Powered by `google-genai` utilizing `gemini-2.0-flash` by default (configurable via `GEMINI_MODEL`).
 * **Output Generation**: Employs `edge-tts` to generate rapid audio responses from the LLM’s text streams back to the client.
 
 ---
@@ -33,7 +33,7 @@ sequenceDiagram
     participant User
     participant App as Native Desktop App (Client)
     participant WS as FastAPI Router (Backend)
-    participant AI as Gemini 2.5 Flash
+    participant AI as Gemini 2.0 Flash
 
     User->>App: Says "Jarvis, why is my PC laggy?"
     App->>App: Porcupine Wake-Word triggers
@@ -101,6 +101,7 @@ uv pip install -r requirements.txt
 Create a `.env` file in the root directory:
 ```env
 GEMINI_API_KEY="AIzaSy...your-gemini-key"
+GEMINI_MODEL="gemini-2.0-flash"
 PICOVOICE_ACCESS_KEY="your-picovoice-porcupine-key"
 ```
 

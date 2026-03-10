@@ -9,6 +9,7 @@ from shared.schemas import (
     WsClientPayload,
     WsServerPayload,
     ClientMetrics,
+    ClientAudioStream,
     ClientToolResult,
     ServerToolAction,
 )
@@ -80,6 +81,10 @@ class SystemCaretakerClient:
 
                     for task in pending:
                         task.cancel()
+                    
+                    for task in done:
+                        if task.exception():
+                            raise task.exception()
             except Exception as e:
                 self.on_log("ERROR", f"Connection failed: {e}. Retrying in 5s...")
                 await asyncio.sleep(5)
@@ -104,10 +109,12 @@ class SystemCaretakerClient:
                 elif payload.type == "agent_audio":
                     if hasattr(self, "audio_pipeline") and self.audio_pipeline:
                         self.audio_pipeline.queue_playback(payload.audio_bytes)
-                        self.on_log(
-                            "SYSTEM",
-                            f"Queuing received audio chunk (~{len(payload.audio_bytes) // 1024}KB) for playback.",
-                        )
+                        size_kb = len(payload.audio_bytes) // 1024
+                        if size_kb > 5:  # only log larger chunks to avoid spam
+                            self.on_log(
+                                "SYSTEM",
+                                f"Queuing audio chunk (~{size_kb}KB) for playback.",
+                            )
 
             except Exception as e:
                 self.on_log("ERROR", f"Invalid payload from server: {e}")
@@ -140,28 +147,25 @@ class SystemCaretakerClient:
             # Since these are synchronous OS tools, wrap them in to_thread so we don't block asyncio WS
             res_dict = await asyncio.to_thread(func, **action.tool_args)
 
-            # If the tool returned an image, extract it and queue a ClientImage payload
-            if "image_bytes" in res_dict:
-                from shared.schemas import ClientImage
-
-                img_bytes = res_dict.pop("image_bytes")  # Remove it from the text dict
-
-                img_payload = ClientImage(image_bytes=img_bytes)
-                await self._outbound_queue.put(img_payload)
-                self.on_log(
-                    "SYSTEM",
-                    f"Tool returned Image payload (~{len(img_bytes) // 1024}KB) - queued separate multimodal attachment.",
-                )
+            # If the tool returned an image, extract it for bundling with the result
+            img_bytes = res_dict.pop("image_bytes", b"")
 
             status = res_dict.get("status", "success")
             msg = str(res_dict)
             self.on_log("SYSTEM", f"Tool {action.tool_name} outcome: {status}")
+
+            if img_bytes:
+                self.on_log(
+                    "SYSTEM",
+                    f"Tool returned image (~{len(img_bytes) // 1024}KB) - bundling with result.",
+                )
 
             result = ClientToolResult(
                 call_id=action.call_id,
                 tool_name=action.tool_name,
                 status=status,
                 message=msg,
+                image_bytes=img_bytes,
             )
             await self._outbound_queue.put(result)
 

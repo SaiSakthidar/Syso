@@ -1,4 +1,6 @@
 import psutil
+import subprocess
+import sys
 from typing import Dict, Any, List
 from shared.schemas import SystemMetricsData
 
@@ -18,8 +20,21 @@ class TelemetryMonitor:
             cpu_percent=cpu,
             memory_percent=mem.percent,
             disk_percent=disk.percent,
+            active_window=self.get_active_window(),
             top_processes=self.get_top_processes(limit=5),
         )
+
+    def get_active_window(self) -> str:
+        """Gets the active foreground window title based on OS."""
+        try:
+            if sys.platform == "linux":
+                result = subprocess.run(["xdotool", "getactivewindow", "getwindowname"], capture_output=True, text=True, timeout=1)
+                if result.returncode == 0 and result.stdout.strip():
+                    return result.stdout.strip()
+            # Can add Windows/Mac support here later
+            return "Unknown"
+        except Exception:
+            return "Unknown"
 
     def get_top_processes(self, limit: int = 5) -> List[Dict[str, Any]]:
         """Gets processes sorted by memory usage."""
