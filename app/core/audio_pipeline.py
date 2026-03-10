@@ -99,94 +99,127 @@ class AudioPipeline:
             self.on_log("INFO", "Microphone listening for wake word...")
 
             import math
+            import struct
 
-            bg_noise_rms = 500.0  # Initial guess
-            silence_threshold_multiplier = 1.6  # 1.6x the ambient noise
+            bg_noise_rms = 500.0
+            silence_threshold_multiplier = 1.6
             silence_frames = 0
+            has_speech = False  # True once user actually says something post wake-word
+            stream_buffer = []  # Accumulate ~160ms chunks before sending
 
-            # 2 seconds of silence after speaking
-            max_silence_duration = int(
-                2.0 * (self.porcupine.sample_rate / self.porcupine.frame_length)
+            # Only start counting silence AFTER user has spoken —
+            # 4s of silence after speech ends the recording.
+            max_silence_after_speech = int(
+                4.0 * (self.porcupine.sample_rate / self.porcupine.frame_length)
+            )
+            # Hard max: 4s of total silence with NO speech at all after wake word
+            max_silence_before_speech = int(
+                4.0 * (self.porcupine.sample_rate / self.porcupine.frame_length)
             )
             # 15 seconds max recording
             max_recording_frames = int(
                 15.0 * (self.porcupine.sample_rate / self.porcupine.frame_length)
             )
+            # Stream every N frames (~160ms at 16kHz / 512 frame_length)
+            stream_chunk_frames = 5
 
             while self.running:
                 try:
                     pcm = audio_stream.read(
                         self.porcupine.frame_length, exception_on_overflow=False
                     )
-                    import struct
 
                     pcm_unpacked = struct.unpack_from(
                         "h" * self.porcupine.frame_length, pcm
                     )
 
-                    # Calculate RMS energy with DC offset removal
                     mean = sum(pcm_unpacked) / len(pcm_unpacked)
                     rms = math.sqrt(
                         sum((x - mean) ** 2 for x in pcm_unpacked) / len(pcm_unpacked)
                     )
 
                     if not self.is_recording:
-                        # continuously adapt background noise profile
                         bg_noise_rms = 0.9 * bg_noise_rms + 0.1 * rms
-
                         result = self.porcupine.process(pcm_unpacked)
                         if result >= 0:
                             self.on_log(
                                 "SYSTEM",
-                                f"Wake word 'jarvis' detected! (Ambient RMS Baseline: {bg_noise_rms:.0f})",
+                                f"Wake word 'jarvis' detected! (Ambient RMS: {bg_noise_rms:.0f})",
                             )
                             self.on_wake_word(True)
                             self.interrupt_playback()
                             self.is_recording = True
-                            self.audio_frames = []
+                            stream_buffer = []
                             silence_frames = 0
+                            has_speech = False
                     else:
-                        self.audio_frames.append(pcm)
+                        stream_buffer.append(pcm)
 
-                        # Check if current RMS is below the dynamic threshold
-                        # Floor the threshold at 800 just in case the mic is completely muted
                         threshold = max(
                             800.0, bg_noise_rms * silence_threshold_multiplier
                         )
 
-                        if len(self.audio_frames) % 10 == 0:
+                        if len(stream_buffer) % 10 == 0:
                             self.on_log(
                                 "DEBUG",
-                                f"Audio RMS: {rms:.0f} | Target Threshold: {threshold:.0f}",
+                                f"Audio RMS: {rms:.0f} | Threshold: {threshold:.0f} | Has speech: {has_speech}",
                             )
 
-                        if rms < threshold:
-                            silence_frames += 1
-                        else:
+                        if rms >= threshold:
+                            # User is speaking
+                            has_speech = True
                             silence_frames = 0
+                        else:
+                            # Silence — only count against the limit if user has spoken
+                            if has_speech:
+                                silence_frames += 1
+
+                        # Stream buffered frames to backend every N frames (real-time)
+                        if len(stream_buffer) >= stream_chunk_frames:
+                            chunk_bytes = b"".join(stream_buffer)
+                            stream_buffer = []
+                            payload = ClientAudio(audio_bytes=chunk_bytes)
+                            self.on_audio_payload(payload)
+
+                        # Determine silence limit based on whether user has spoken yet
+                        silence_limit = (
+                            max_silence_after_speech
+                            if has_speech
+                            else max_silence_before_speech
+                        )
+
+                        total_frames = (
+                            len(stream_buffer)
+                            +
+                            # approximate count already streamed
+                            0
+                        )
 
                         if (
-                            silence_frames >= max_silence_duration
-                            or len(self.audio_frames) >= max_recording_frames
+                            silence_frames >= silence_limit
+                            or len(stream_buffer) >= max_recording_frames
                         ):
                             reason = (
-                                "Silence detected"
-                                if silence_frames >= max_silence_duration
+                                "Silence detected after speech"
+                                if (has_speech and silence_frames >= silence_limit)
+                                else "No speech within 4s of wake word"
+                                if (not has_speech)
                                 else "Max recording length (15s) reached"
                             )
-                            self.on_log(
-                                "SYSTEM",
-                                f"{reason}, sending audio.",
-                            )
+                            self.on_log("SYSTEM", f"{reason}, stopping recording.")
                             self.is_recording = False
                             self.on_wake_word(False)
 
-                            full_audio_bytes = b"".join(self.audio_frames)
-                            payload = ClientAudio(audio_bytes=full_audio_bytes)
-                            self.on_audio_payload(payload)
+                            # Flush any remaining buffered frames
+                            if stream_buffer:
+                                payload = ClientAudio(
+                                    audio_bytes=b"".join(stream_buffer)
+                                )
+                                self.on_audio_payload(payload)
 
-                            self.audio_frames = []
+                            stream_buffer = []
                             silence_frames = 0
+                            has_speech = False
 
                 except Exception as e:
                     self.on_log("ERROR", f"Audio listen error: {e}")
