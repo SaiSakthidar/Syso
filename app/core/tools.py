@@ -152,6 +152,7 @@ def restart_graphics_server() -> Dict[str, Any]:
 
 
 def get_system_logs(lines: int = 50) -> Dict[str, Any]:
+    # TODO: make it cross platform
     try:
         result = subprocess.run(
             ["journalctl", "-n", str(lines), "--no-pager"],
