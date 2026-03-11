@@ -104,23 +104,24 @@ class AudioPipeline:
             bg_noise_rms = 500.0
             silence_threshold_multiplier = 1.6
             silence_frames = 0
-            has_speech = False  # True once user actually says something post wake-word
-            stream_buffer = []  # Accumulate ~160ms chunks before sending
+            idle_frames = 0  # separate counter for pre-speech timeout
+            total_recorded_frames = 0  # real 60s cap
+            has_speech = False
+            stream_buffer = []
 
-            # Only start counting silence AFTER user has spoken —
-            # 2.5s of silence after speech ends the recording.
+            # Silence after speech ends the recording.
             max_silence_after_speech = int(
-                2.5 * (self.porcupine.sample_rate / self.porcupine.frame_length)
+                5 * (self.porcupine.sample_rate / self.porcupine.frame_length)
             )
-            # Hard max: 6s of total silence with NO speech at all after wake word
-            max_silence_before_speech = int(
-                6.0 * (self.porcupine.sample_rate / self.porcupine.frame_length)
+            # Give 5s for the user to start speaking after the wake word.
+            max_idle_before_speech = int(
+                5 * (self.porcupine.sample_rate / self.porcupine.frame_length)
             )
-            # 60 seconds max recording
+            # Hard 60-second recording cap.
             max_recording_frames = int(
                 60.0 * (self.porcupine.sample_rate / self.porcupine.frame_length)
             )
-            # Stream every N frames (~160ms at 16kHz / 512 frame_length)
+            # Stream every N frames (~160ms at 16kHz/512)
             stream_chunk_frames = 5
 
             while self.running:
@@ -142,76 +143,94 @@ class AudioPipeline:
                         bg_noise_rms = 0.9 * bg_noise_rms + 0.1 * rms
                         result = self.porcupine.process(pcm_unpacked)
                         if result >= 0:
+                            # "Jarvis" is loud → bg_noise_rms gets
+                            # inflated right before recording starts, raising the
+                            # threshold so high that subsequent speech doesn't
+                            # register and silence_frames climbs immediately.
+                            # Deflate by 60% to recover a realistic ambient level.
+                            bg_noise_rms *= 0.4
+
                             self.on_log(
                                 "SYSTEM",
-                                f"Wake word 'jarvis' detected! (Ambient RMS: {bg_noise_rms:.0f})",
+                                f"Wake word detected! (Adjusted ambient RMS: {bg_noise_rms:.0f})",
                             )
                             self.on_wake_word(True)
                             self.interrupt_playback()
                             self.is_recording = True
                             stream_buffer = []
                             silence_frames = 0
+                            idle_frames = 0
+                            total_recorded_frames = 0
                             has_speech = False
                     else:
                         stream_buffer.append(pcm)
+                        total_recorded_frames += 1
 
                         threshold = max(
                             800.0, bg_noise_rms * silence_threshold_multiplier
                         )
 
-                        if len(stream_buffer) % 10 == 0:
+                        if total_recorded_frames % 10 == 0:
                             self.on_log(
                                 "DEBUG",
-                                f"Audio RMS: {rms:.0f} | Threshold: {threshold:.0f} | Has speech: {has_speech}",
+                                f"RMS: {rms:.0f} | Threshold: {threshold:.0f} "
+                                f"| has_speech: {has_speech} "
+                                f"| silence_frames: {silence_frames} "
+                                f"| idle_frames: {idle_frames}",
                             )
 
                         if rms >= threshold:
-                            # User is speaking
                             has_speech = True
                             silence_frames = 0
+                            idle_frames = 0
                         else:
-                            # Silence — only count against the limit if user has spoken
                             if has_speech:
+                                # Count silence frames ONLY after speech began
                                 silence_frames += 1
+                            else:
+                                # count pre-speech idle frames separately
+                                idle_frames += 1
 
-                        # Stream buffered frames to backend every N frames (real-time)
+                        # Stream buffer to backend in ~160ms chunks
                         if len(stream_buffer) >= stream_chunk_frames:
                             chunk_bytes = b"".join(stream_buffer)
                             stream_buffer = []
-                            payload = ClientAudio(audio_bytes=chunk_bytes)
-                            self.on_audio_payload(payload)
+                            self.on_audio_payload(ClientAudio(audio_bytes=chunk_bytes))
 
-                        # Determine silence limit based on whether user has spoken yet
-                        silence_limit = (
-                            max_silence_after_speech
-                            if has_speech
-                            else max_silence_before_speech
+                        # Stop conditions
+                        hit_post_speech_silence = (
+                            has_speech and silence_frames >= max_silence_after_speech
                         )
+                        hit_idle_timeout = (
+                            not has_speech and idle_frames >= max_idle_before_speech
+                        )
+                        hit_max_length = total_recorded_frames >= max_recording_frames
 
                         if (
-                            silence_frames >= silence_limit
-                            or len(stream_buffer) >= max_recording_frames
+                            hit_post_speech_silence
+                            or hit_idle_timeout
+                            or hit_max_length
                         ):
-                            reason = (
-                                "Silence detected after speech"
-                                if (has_speech and silence_frames >= silence_limit)
-                                else "No speech within 4s of wake word"
-                                if (not has_speech)
-                                else "Max recording length (15s) reached"
-                            )
+                            if hit_post_speech_silence:
+                                reason = "Silence detected after speech"
+                            elif hit_idle_timeout:
+                                reason = "No speech within 6s of wake word"
+                            else:
+                                reason = "Max recording length (60s) reached"
+
                             self.on_log("SYSTEM", f"{reason}, stopping recording.")
                             self.is_recording = False
                             self.on_wake_word(False)
 
-                            # Flush any remaining buffered frames
                             if stream_buffer:
-                                payload = ClientAudio(
-                                    audio_bytes=b"".join(stream_buffer)
+                                self.on_audio_payload(
+                                    ClientAudio(audio_bytes=b"".join(stream_buffer))
                                 )
-                                self.on_audio_payload(payload)
 
                             stream_buffer = []
                             silence_frames = 0
+                            idle_frames = 0
+                            total_recorded_frames = 0
                             has_speech = False
 
                 except Exception as e:
