@@ -106,7 +106,7 @@ class SystemCaretakerClient:
                         self.audio_pipeline.queue_playback(payload.audio_bytes)
                         self.on_log(
                             "SYSTEM",
-                            f"Queuing received audio chunk (~{len(payload.audio_bytes) // 1024}KB) for playback.",
+                            f"Queuing received audio chunk (~{len(payload.audio_bytes) / 1024:.2f}KB) for playback.",
                         )
 
             except Exception as e:

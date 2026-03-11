@@ -30,23 +30,25 @@ class MainWindow(ctk.CTk):
         # Start checking the queue for updates
         self.after(100, self._process_ui_queue)
 
-    def _hide_to_tray(self):
-        self.withdraw()  # Hide UI
+        # Always run tray icon
         self._spawn_tray_icon()
 
+    def _hide_to_tray(self):
+        self.withdraw()  # Hide UI
+
     def _spawn_tray_icon(self):
-        from PIL import Image, ImageDraw
+        from PIL import Image
         import pystray
         import threading
+        import os
 
-        # Generate a cool default icon on the fly
-        image = Image.new("RGB", (64, 64), color=(30, 30, 30))
-        draw = ImageDraw.Draw(image)
-        draw.ellipse((16, 16, 48, 48), fill=(0, 150, 255))
-        draw.ellipse((24, 24, 40, 40), fill=(255, 255, 255))
+        # Load the custom jarvis icon
+        icon_path = os.path.join(
+            os.path.dirname(__file__), "..", "assets", "jarvis.png"
+        )
+        image = Image.open(icon_path)
 
         def show_window(icon, item):
-            icon.stop()
             self.after(0, self.deiconify)  # Safely bring back UI on main thread
 
         def quit_app(icon, item):
