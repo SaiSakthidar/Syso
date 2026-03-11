@@ -3,6 +3,7 @@ import logging
 from typing import Dict
 import os
 import asyncio
+import json
 
 from google import genai
 from google.genai import types
@@ -17,6 +18,8 @@ from shared.schemas import (
     ServerAudio,
 )
 from backend.router.parser import serialize_server_payload
+from backend.agent.memory_tier2 import MemoryTier2
+from backend.agent.memory_tier3 import MemoryTier3
 
 logger = logging.getLogger(__name__)
 
@@ -27,15 +30,34 @@ class GeminiOrchestrator:
 
         self.client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
+        self.tier2 = MemoryTier2()
+        self.tier3 = MemoryTier3()
+        profile_summary = json.dumps(self.tier3.get_profile(), indent=2)
+
         self.system_instruction = (
-            "You are 'Jarvis', an automatic real-time system operator and caretaker. "
+            "You are 'System Caretaker', an automatic system operator and caretaker running on the user's machine. "
             "You help monitor system vitals, handle user queries (text/audio), and use tools to manage their OS. "
             "You have access to current system metrics provided by the user. "
-            "Be helpful, proactive, and concise. Don't be too verbose unless explicitly asked to."
+            "Be helpful, proactive, and concise. Don't be too verbose unless explicitly asked to.\n\n"
+            "IMPORTANT: You have powerful tools available. USE THEM whenever relevant:\n"
+            "- get_desktop_picture: Takes a screenshot of the user's screen so you can SEE what they see.\n"
+            "- get_system_health: Gets current CPU, RAM, disk metrics.\n"
+            "- get_all_process_and_resource_usage: Lists the top resource-heavy processes.\n"
+            "- terminate_process: Kills a process by PID.\n"
+            "- set_focus_environment: Enables dark mode, DND, or closes distractions.\n"
+            "- get_system_logs: Reads recent OS logs.\n"
+            "- disk_usage_scan: Scans for large files.\n"
+            "- cleanup_disk: Cleans temp files.\n"
+            "- manage_browser_tabs: Suspends or kills browser tabs.\n"
+            "- manage_background_services: Stops or restarts services.\n\n"
+            "When a user asks about their screen, processes, or system — ALWAYS call the relevant tool first. "
+            "Do NOT say you cannot see the screen — you CAN via get_desktop_picture.\n\n"
+            f"[User Profile & Learned Preferences]:\n{profile_summary}"
         )
 
-        self.pending_tool_calls: Dict[str, str] = {}
+        self.pending_tool_calls: Dict[str, Dict[str, str]] = {}
         self.latest_metrics = None
+        self.latest_query = "initial load"
 
         # Queues for decoupling the FastAPI handler from the Gemini session loop
         self._send_queue: asyncio.Queue = asyncio.Queue()
@@ -64,12 +86,18 @@ class GeminiOrchestrator:
                 return
 
             elif payload.type == "text":
+                self.latest_query = payload.text
                 text = payload.text
                 if self.latest_metrics:
-                    text += f"\n[System State]: {self.latest_metrics.model_dump_json()}"
+                    past_events = self.tier2.retrieve_similar_events(
+                        "user_query", payload.text
+                    )
+                    text += f"\n[Past Relevant Memory]: {json.dumps(past_events)}\n"
+                    text += f"[Current System State]: {self.latest_metrics.model_dump_json()}"
                 await self._send_queue.put(("text", text))
 
             elif payload.type == "image":
+                self.latest_query = "image upload"
                 parts = [
                     {
                         "inline_data": {
@@ -86,14 +114,35 @@ class GeminiOrchestrator:
                     )
                 await self._send_queue.put(("content", parts))
 
+            elif payload.type == "audio_stream":
+                # Used for raw PCM chunks in streaming mode
+                await self._send_queue.put(("audio", payload.audio_bytes))
+
             elif payload.type == "audio":
+                # Legacy full-audio buffer message
+                self.latest_query = "voice command"
                 await self._send_queue.put(("audio", payload.audio_bytes))
 
             elif payload.type == "tool_result":
                 if payload.call_id not in self.pending_tool_calls:
                     logger.warning(f"Unknown tool result call_id: {payload.call_id}")
                     return
-                tool_name = self.pending_tool_calls.pop(payload.call_id)
+                call_info = self.pending_tool_calls.pop(payload.call_id)
+                tool_name = call_info.get("tool_name", "unknown")
+                event_id = call_info.get("event_id")
+
+                if event_id:
+                    self.tier2.record_operation_outcome(
+                        event_id=event_id,
+                        status=payload.status,
+                        result_metrics={"message": payload.message},
+                    )
+                    self.tier2.record_user_response(
+                        event_id=event_id,
+                        accepted=True if payload.status == "success" else False,
+                    )
+
+                # Format tool result for sending
                 await self._send_queue.put(
                     (
                         "tool_result",
@@ -171,13 +220,11 @@ class GeminiOrchestrator:
                         turn_complete=True,
                     )
                 elif kind == "content":
-                    # data is a list of parts (e.g. image + text)
                     await session.send_client_content(
                         turns=[{"role": "user", "parts": data}],
                         turn_complete=True,
                     )
                 elif kind == "audio":
-                    # Raw PCM 16kHz, streamed as realtime input
                     await session.send_realtime_input(
                         audio=types.Blob(data=data, mime_type="audio/pcm;rate=16000")
                     )
@@ -209,11 +256,11 @@ class GeminiOrchestrator:
                                     await self.send_to_client(
                                         ServerAudio(audio_bytes=part.inline_data.data)
                                     )
-                            # Tool calls (rare on model_turn for native audio but handle it)
+                            # Tool calls
                             if part.function_call is not None:
                                 await self._dispatch_tool_call(part.function_call)
 
-                    # Transcription of the model's spoken audio — this drives the chat text
+                    # Transcription of the model's spoken audio
                     if sc.output_transcription is not None:
                         text = sc.output_transcription.text
                         if text:
@@ -221,7 +268,6 @@ class GeminiOrchestrator:
                                 ServerText(text=text, is_chunk=True)
                             )
 
-                # Tool calls can also come as a top-level field on the response
                 if response.tool_call is not None:
                     for fn in response.tool_call.function_calls:
                         await self._dispatch_tool_call(fn)
@@ -235,8 +281,26 @@ class GeminiOrchestrator:
     async def _dispatch_tool_call(self, fn):
         call_id = fn.id or str(uuid.uuid4())
         tool_name = fn.name
-        self.pending_tool_calls[call_id] = tool_name
+
         args_dict = fn.args if fn.args else {}
+        if not isinstance(args_dict, dict):
+            args_dict = dict(args_dict) if hasattr(args_dict, "__iter__") else {}
+
+        # Record event in episodic memory
+        system_state = self.latest_metrics.model_dump() if self.latest_metrics else {}
+        event_id = None
+        if hasattr(self, "tier2") and self.tier2:
+            event_id = self.tier2.create_event(
+                event_type="user_interaction",
+                system_state=system_state,
+                suggestion=f"Tool called: {fn.name} with {args_dict}",
+                suggestion_context=self.latest_query,
+            )
+        self.pending_tool_calls[call_id] = {
+            "tool_name": tool_name,
+            "event_id": event_id,
+        }
+
         await self.send_to_client(
             ServerToolAction(call_id=call_id, tool_name=tool_name, tool_args=args_dict)
         )
