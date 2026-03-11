@@ -50,6 +50,16 @@ class GeminiOrchestrator:
             "- cleanup_disk: Cleans temp files.\n"
             "- manage_browser_tabs: Suspends or kills browser tabs.\n"
             "- manage_background_services: Stops or restarts services.\n\n"
+            "CONFIRMATION REQUIRED — CRITICAL RULE:\n"
+            "The following tools are DESTRUCTIVE and will modify or delete data on the user's machine. "
+            "You MUST verbally tell the user what you are about to do and explicitly ask for their confirmation "
+            "before calling any of these tools. NEVER call them autonomously without a clear 'yes' or equivalent from the user:\n"
+            "- cleanup_disk (deletes files)\n"
+            "- terminate_process (kills a running process)\n"
+            "- manage_browser_tabs with action=kill (closes tabs)\n"
+            "- manage_background_services with action=stop (stops services)\n"
+            "- set_focus_environment (changes system settings)\n\n"
+            "For diagnostic/read-only tools (get_desktop_picture, get_system_health, disk_usage_scan, etc.) you may call freely without asking.\n\n"
             "When a user asks about their screen, processes, or system — ALWAYS call the relevant tool first. "
             "Do NOT say you cannot see the screen — you CAN via get_desktop_picture.\n\n"
             f"[User Profile & Learned Preferences]:\n{profile_summary}"
@@ -123,6 +133,20 @@ class GeminiOrchestrator:
                 self.latest_query = "voice command"
                 await self._send_queue.put(("audio", payload.audio_bytes))
 
+            elif payload.type == "interrupt":
+                # The user interrupted via voice or UI
+                logger.info("Received interrupt payload from client.")
+                
+                # 1. Clear any pending messages in our own send queue
+                while not self._send_queue.empty():
+                    try:
+                        self._send_queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+
+                # 2. Add an explicit interrupt command to send to Gemini
+                await self._send_queue.put(("interrupt", None))
+
             elif payload.type == "tool_result":
                 if payload.call_id not in self.pending_tool_calls:
                     logger.warning(f"Unknown tool result call_id: {payload.call_id}")
@@ -155,6 +179,15 @@ class GeminiOrchestrator:
             await self.send_to_client(
                 ServerError(error_msg=f"Agent Request Error: {str(e)}")
             )
+
+    async def push_alert(self, alert_message: str):
+        """
+        Inject a proactive system alert into the Gemini session send queue.
+        Called by MonitoringEngine when a threshold is breached.
+        The alert is sent as а user-side text so Gemini will respond aloud.
+        """
+        logger.info(f"Pushing proactive alert to Gemini: {alert_message[:80]}...")
+        await self._send_queue.put(("alert", alert_message))
 
     async def send_to_client(self, payload: WsServerPayload):
         raw_bytes = serialize_server_payload(payload)
@@ -227,6 +260,22 @@ class GeminiOrchestrator:
                 elif kind == "audio":
                     await session.send_realtime_input(
                         audio=types.Blob(data=data, mime_type="audio/pcm;rate=16000")
+                    )
+                elif kind == "alert":
+                    # Proactive system alert — inject as a new user turn.
+                    # Gemini speaks its response aloud; only the transcription shows in chat.
+                    logger.info("Forwarding proactive alert turn to Gemini Live API.")
+                    await session.send_client_content(
+                        turns=[{"role": "user", "parts": [{"text": data}]}],
+                        turn_complete=True,
+                    )
+                elif kind == "interrupt":
+                    # Send an empty user content piece with turn_complete=False to halt 
+                    # whatever the model is currently generating immediately.
+                    logger.info("Sending interrupt signal to Gemini Live API.")
+                    await session.send_client_content(
+                        turns=[{"role": "user", "parts": []}],
+                        turn_complete=False,
                     )
                 elif kind == "tool_result":
                     call_id, tool_name, status, message = data
