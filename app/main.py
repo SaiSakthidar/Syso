@@ -30,6 +30,8 @@ def main():
 
     def on_wake_word(state: bool):
         app.add_ui_job(lambda: app.chat_panel.set_wake_word_status(state))
+        if hasattr(app, "set_tray_recording_state"):
+            app.add_ui_job(lambda: app.set_tray_recording_state(state))
         if state:
             app.add_ui_job(
                 lambda: app.chat_panel.append_message("System", "Listening...")

@@ -108,17 +108,17 @@ class AudioPipeline:
             stream_buffer = []  # Accumulate ~160ms chunks before sending
 
             # Only start counting silence AFTER user has spoken —
-            # 4s of silence after speech ends the recording.
+            # 2.5s of silence after speech ends the recording.
             max_silence_after_speech = int(
-                4.0 * (self.porcupine.sample_rate / self.porcupine.frame_length)
+                2.5 * (self.porcupine.sample_rate / self.porcupine.frame_length)
             )
-            # Hard max: 4s of total silence with NO speech at all after wake word
+            # Hard max: 6s of total silence with NO speech at all after wake word
             max_silence_before_speech = int(
-                4.0 * (self.porcupine.sample_rate / self.porcupine.frame_length)
+                6.0 * (self.porcupine.sample_rate / self.porcupine.frame_length)
             )
-            # 15 seconds max recording
+            # 60 seconds max recording
             max_recording_frames = int(
-                15.0 * (self.porcupine.sample_rate / self.porcupine.frame_length)
+                60.0 * (self.porcupine.sample_rate / self.porcupine.frame_length)
             )
             # Stream every N frames (~160ms at 16kHz / 512 frame_length)
             stream_chunk_frames = 5
@@ -186,13 +186,6 @@ class AudioPipeline:
                             max_silence_after_speech
                             if has_speech
                             else max_silence_before_speech
-                        )
-
-                        total_frames = (
-                            len(stream_buffer)
-                            +
-                            # approximate count already streamed
-                            0
                         )
 
                         if (
