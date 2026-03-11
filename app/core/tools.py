@@ -249,6 +249,137 @@ def manage_background_services(service_name: str, action: str) -> Dict[str, Any]
         return {"status": "error", "message": str(e)}
 
 
+def set_system_volume(percent: int) -> Dict[str, Any]:
+    if sys.platform != "linux":
+        return {
+            "status": "error",
+            "message": "Volume control is currently only supported on Linux/Ubuntu.",
+        }
+    try:
+        # Using amixer to set pulse volume
+        subprocess.run(
+            ["amixer", "-D", "pulse", "sset", "Master", f"{percent}%"],
+            check=True,
+            capture_output=True,
+        )
+        return {"status": "success", "message": f"Volume set to {percent}%"}
+    except subprocess.CalledProcessError as e:
+        return {
+            "status": "error",
+            "message": f"Failed to set volume: {e.stderr.decode()}",
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+def set_system_brightness(percent: int) -> Dict[str, Any]:
+    if sys.platform != "linux":
+        return {
+            "status": "error",
+            "message": "Brightness control is currently only supported on Linux/Ubuntu.",
+        }
+    try:
+        # Use native GNOME dbus which doesn't require sudo or external packages
+        subprocess.run(
+            [
+                "gdbus",
+                "call",
+                "--session",
+                "--dest",
+                "org.gnome.SettingsDaemon.Power",
+                "--object-path",
+                "/org/gnome/SettingsDaemon/Power",
+                "--method",
+                "org.freedesktop.DBus.Properties.Set",
+                "org.gnome.SettingsDaemon.Power.Screen",
+                "Brightness",
+                f"<int32 {percent}>",
+            ],
+            check=True,
+            capture_output=True,
+        )
+        return {"status": "success", "message": f"Brightness set to {percent}%"}
+    except subprocess.CalledProcessError as e:
+        return {
+            "status": "error",
+            "message": f"Failed to set brightness via dbus: {e.stderr.decode()}",
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+def set_system_theme(theme: str) -> Dict[str, Any]:
+    if sys.platform != "linux":
+        return {
+            "status": "error",
+            "message": "Theme control is currently only supported on Linux/Ubuntu.",
+        }
+    try:
+        scheme = "'prefer-dark'" if theme.lower() == "dark" else "'default'"
+        subprocess.run(
+            ["gsettings", "set", "org.gnome.desktop.interface", "color-scheme", scheme],
+            check=True,
+            capture_output=True,
+        )
+        return {"status": "success", "message": f"System theme set to {theme} mode."}
+    except subprocess.CalledProcessError as e:
+        return {
+            "status": "error",
+            "message": f"Failed to set theme: {e.stderr.decode()}",
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+def manage_wifi(action: str) -> Dict[str, Any]:
+    if sys.platform != "linux":
+        return {
+            "status": "error",
+            "message": "Wi-Fi control is currently only supported on Linux/Ubuntu.",
+        }
+    try:
+        if action not in ["on", "off"]:
+            return {"status": "error", "message": "Action must be 'on' or 'off'."}
+        subprocess.run(
+            ["nmcli", "radio", "wifi", action], check=True, capture_output=True
+        )
+        return {"status": "success", "message": f"Wi-Fi turned {action}."}
+    except subprocess.CalledProcessError as e:
+        return {
+            "status": "error",
+            "message": f"Failed to modify Wi-Fi state: {e.stderr.decode()}",
+        }
+    except FileNotFoundError:
+        return {"status": "error", "message": "nmcli not found."}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+def manage_bluetooth(action: str) -> Dict[str, Any]:
+    if sys.platform != "linux":
+        return {
+            "status": "error",
+            "message": "Bluetooth control is currently only supported on Linux/Ubuntu.",
+        }
+    try:
+        if action not in ["on", "off"]:
+            return {"status": "error", "message": "Action must be 'on' or 'off'."}
+        rfkill_action = "block" if action == "off" else "unblock"
+        subprocess.run(
+            ["rfkill", rfkill_action, "bluetooth"], check=True, capture_output=True
+        )
+        return {"status": "success", "message": f"Bluetooth turned {action}."}
+    except subprocess.CalledProcessError as e:
+        return {
+            "status": "error",
+            "message": f"Failed to modify Bluetooth state: {e.stderr.decode()}",
+        }
+    except FileNotFoundError:
+        return {"status": "error", "message": "rfkill not found."}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 # Dictionary matching schema names to functions
 LOCAL_TOOLS = {
     "get_system_health": get_system_health,
@@ -262,4 +393,9 @@ LOCAL_TOOLS = {
     "cleanup_disk": cleanup_disk,
     "manage_browser_tabs": manage_browser_tabs,
     "manage_background_services": manage_background_services,
+    "set_system_volume": set_system_volume,
+    "set_system_brightness": set_system_brightness,
+    "set_system_theme": set_system_theme,
+    "manage_wifi": manage_wifi,
+    "manage_bluetooth": manage_bluetooth,
 }
