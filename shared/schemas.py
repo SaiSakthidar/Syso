@@ -37,11 +37,11 @@ class ClientToolResult(BaseModel):
     status: Literal["success", "error"]
     message: str
 
+class ClientInterrupt(BaseModel):
+    """Signals the server to preemptively abort the active audio generation turn."""
+    type: Literal["interrupt"] = "interrupt"
 
-WsClientPayload = Union[
-    ClientMetrics, ClientText, ClientAudio, ClientImage, ClientToolResult
-]
-
+WsClientPayload = Union[ClientMetrics, ClientText, ClientAudio, ClientImage, ClientToolResult, ClientInterrupt]
 
 # --- BACKEND TO CLIENT (Server sends) ---
 class ServerText(BaseModel):

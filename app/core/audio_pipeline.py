@@ -7,7 +7,12 @@ import pygame
 import tempfile
 from typing import Callable, Optional
 
-from shared.schemas import ClientAudio
+from shared.schemas import ClientAudio, ClientInterrupt
+
+# PCM playback constants (Gemini Live API returns 24kHz mono 16-bit PCM)
+PLAYBACK_RATE = 24000
+PLAYBACK_CHANNELS = 1
+PLAYBACK_FORMAT = pyaudio.paInt16
 
 
 class AudioPipeline:
@@ -80,7 +85,12 @@ class AudioPipeline:
                 self.playback_queue.get_nowait()
             except queue.Empty:
                 break
-        self.on_log("SYSTEM", "Audio playback interrupted by user.")
+        # Signal the backend to abort the current Gemini generation
+        self.on_audio_payload(ClientInterrupt())
+        
+        # Don't stop the playback stream — just drain the queue.
+        # Stopping it causes "Stream closed" errors on subsequent writes.
+        self.on_log("SYSTEM", "Audio playback interrupted by user. Sent interrupt signal to server.")
 
     def queue_playback(self, audio_bytes: bytes):
         self.playback_queue.put(audio_bytes)
@@ -109,13 +119,14 @@ class AudioPipeline:
             has_speech = False
             stream_buffer = []
 
-            # Silence after speech ends the recording.
+            # Only start counting silence AFTER user has spoken —
+            # 4.0s of silence after speech ends the recording.
             max_silence_after_speech = int(
-                5 * (self.porcupine.sample_rate / self.porcupine.frame_length)
+                4.0 * (self.porcupine.sample_rate / self.porcupine.frame_length)
             )
-            # Give 5s for the user to start speaking after the wake word.
-            max_idle_before_speech = int(
-                5 * (self.porcupine.sample_rate / self.porcupine.frame_length)
+            # Hard max: 10s of total silence with NO speech at all after wake word
+            max_silence_before_speech = int(
+                10.0 * (self.porcupine.sample_rate / self.porcupine.frame_length)
             )
             # Hard 60-second recording cap.
             max_recording_frames = int(

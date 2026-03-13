@@ -16,27 +16,114 @@ def get_system_health() -> Dict[str, Any]:
 
 
 def get_desktop_picture() -> Dict[str, Any]:
+    import tempfile, os, glob
+    display = os.environ.get("DISPLAY") or ":1"
+    env = {**os.environ, "DISPLAY": display}
+    tmpdir = tempfile.mkdtemp(prefix="sc_wins_")
+
+    # 1. Get all windows via wmctrl
+    windows = []  # list of (win_id, title)
     try:
-        # Take screenshot
-        screenshot = ImageGrab.grab()
-        # Resize to save bandwidth
-        screenshot.thumbnail((1280, 720))
+        wm = subprocess.run(["wmctrl", "-l"], capture_output=True, text=True, timeout=3, env=env)
+        if wm.returncode == 0:
+            for line in wm.stdout.strip().splitlines():
+                parts = line.split(None, 3)
+                if len(parts) == 4:
+                    win_id, _ws, _host, title = parts
+                    # Skip system / desktop chrome
+                    if any(skip in title for skip in ["Desktop Icons", "N/A", "xdg-desktop"]):
+                        continue
+                    windows.append((win_id, title))
+    except Exception:
+        pass
 
-        byte_stream = io.BytesIO()
-        screenshot.save(byte_stream, format="JPEG", quality=70)
-        img_bytes = byte_stream.getvalue()
+    # 2. Capture each window individually with ImageMagick `import -window`
+    captured = []  # list of (tmpfile_path, title)
+    for win_id, title in windows:
+        out = os.path.join(tmpdir, f"{win_id}.jpg")
+        try:
+            r = subprocess.run(
+                ["import", "-window", win_id, "-resize", "800x600>", "-quality", "70", out],
+                capture_output=True, timeout=5, env=env,
+            )
+            if r.returncode == 0 and os.path.exists(out) and os.path.getsize(out) > 5000:
+                captured.append((out, title))
+        except Exception:
+            pass
 
-        # Let's return the actual bytes along with the success message
-        return {
-            "status": "success",
-            "message": "Screenshot grabbed.",
-            "image_bytes": img_bytes,
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": f"Screenshot failed: {e}. Note: Wayland may block this.",
-        }
+    # 3. If we got individual windows, montage them into one image with labels
+    if captured:
+        try:
+            motage_args = []
+            for path, title in captured:
+                # ImageMagick montage -label per image
+                motage_args += ["-label", title[:60], path]
+            montage_out = os.path.join(tmpdir, "montage.jpg")
+            cols = 2 if len(captured) > 1 else 1
+            subprocess.run(
+                ["montage"] + motage_args + [
+                    "-tile", f"{cols}x",
+                    "-geometry", "800x500+4+4",
+                    "-font", "DejaVu-Sans",
+                    "-pointsize", "14",
+                    "-background", "#1e1e1e",
+                    "-fill", "white",
+                    montage_out,
+                ],
+                capture_output=True, timeout=15, env=env,
+            )
+            if os.path.exists(montage_out):
+                with open(montage_out, "rb") as f:
+                    img_bytes = f.read()
+                titles = [t for _, t in captured]
+                # Cleanup
+                for f in glob.glob(os.path.join(tmpdir, "*")):
+                    os.unlink(f)
+                os.rmdir(tmpdir)
+                return {
+                    "status": "success",
+                    "message": (
+                        f"Captured {len(captured)} open window(s):\n"
+                        + "\n".join(f"  • {t}" for t in titles)
+                    ),
+                    "image_bytes": img_bytes,
+                }
+        except Exception:
+            pass
+
+    # 4. Fallback: full desktop screenshot
+    try:
+        res_result = subprocess.run(
+            ["xdpyinfo", "-display", display],
+            capture_output=True, text=True, timeout=3, env=env,
+        )
+        resolution = "1920x1080"
+        for line in res_result.stdout.splitlines():
+            if "dimensions:" in line:
+                resolution = line.strip().split()[1]
+                break
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            tmppath = tmp.name
+        r = subprocess.run(
+            ["ffmpeg", "-y", "-f", "x11grab", "-video_size", resolution,
+             "-i", display, "-vframes", "1", "-vf", "scale=1280:-1", "-q:v", "5", tmppath],
+            capture_output=True, timeout=15, env=env,
+        )
+        if r.returncode == 0:
+            with open(tmppath, "rb") as f:
+                img_bytes = f.read()
+            os.unlink(tmppath)
+            titles = [t for _, t in windows]
+            return {
+                "status": "success",
+                "message": "Desktop screenshot. Open windows:\n" + "\n".join(f"  • {t}" for t in titles),
+                "image_bytes": img_bytes,
+            }
+        os.unlink(tmppath)
+    except Exception:
+        pass
+
+    return {"status": "error", "message": f"Screenshot failed. DISPLAY={display}"}
 
 
 def get_all_process_and_resource_usage() -> Dict[str, Any]:
@@ -381,6 +468,72 @@ def manage_bluetooth(action: str) -> Dict[str, Any]:
         return {"status": "error", "message": str(e)}
 
 
+
+def set_dnd_mode(action: str) -> Dict[str, Any]:
+    """Enable or disable GNOME Do Not Disturb (suppresses notification popups)."""
+    if sys.platform != "linux":
+        return {"status": "error", "message": "DND is only supported on Linux/GNOME."}
+    if action not in ("on", "off"):
+        return {"status": "error", "message": "Action must be 'on' or 'off'."}
+    # DND = disable notification banners
+    value = "false" if action == "on" else "true"
+    try:
+        subprocess.run(
+            ["gsettings", "set", "org.gnome.desktop.notifications", "show-banners", value],
+            check=True, capture_output=True,
+        )
+        state = "enabled" if action == "on" else "disabled"
+        return {"status": "success", "message": f"Do Not Disturb {state}."}
+    except subprocess.CalledProcessError as e:
+        return {"status": "error", "message": f"gsettings error: {e.stderr.decode()}"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+def detect_active_meeting() -> Dict[str, Any]:
+    """
+    Detect whether a video-conferencing meeting is currently active by scanning
+    open window titles for known meeting platforms (Google Meet, Zoom, Teams, etc.).
+    Uses wmctrl (available by default on most Ubuntu setups).
+    """
+    MEETING_KEYWORDS = [
+        "meet.google.com",
+        "Google Meet",
+        "Zoom Meeting",
+        "zoom",
+        "Microsoft Teams",
+        "teams.microsoft.com",
+        "Webex",
+        "webex.com",
+        "Jitsi",
+        "jitsi",
+        "BlueJeans",
+    ]
+    try:
+        result = subprocess.run(
+            ["wmctrl", "-l"], capture_output=True, text=True, timeout=5
+        )
+        if result.returncode != 0:
+            return {"status": "error", "message": "wmctrl failed."}
+
+        windows = result.stdout.strip().split("\n")
+        for line in windows:
+            title_lower = line.lower()
+            for keyword in MEETING_KEYWORDS:
+                if keyword.lower() in title_lower:
+                    return {
+                        "status": "success",
+                        "meeting_active": True,
+                        "message": f"Active meeting detected: '{line.strip()}'",
+                        "matched_keyword": keyword,
+                    }
+        return {"status": "success", "meeting_active": False, "message": "No active meeting detected."}
+    except FileNotFoundError:
+        return {"status": "error", "message": "wmctrl not found. Install with: sudo apt install wmctrl"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 # Dictionary matching schema names to functions
 LOCAL_TOOLS = {
     "get_system_health": get_system_health,
@@ -399,4 +552,6 @@ LOCAL_TOOLS = {
     "set_system_theme": set_system_theme,
     "manage_wifi": manage_wifi,
     "manage_bluetooth": manage_bluetooth,
+    "set_dnd_mode": set_dnd_mode,
+    "detect_active_meeting": detect_active_meeting,
 }

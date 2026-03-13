@@ -18,14 +18,12 @@ Event Types (Future System Monitoring - Not Yet Implemented):
 - battery_low: Battery level critical
 - app_hang_detected: Application became unresponsive
 - disk_io_high: Disk read/write operations excessive
-- memory_leak_suspected: Suspicious memory growth pattern
 - background_app_suggestion: Suggest closing background apps
 - theme_preference_change: Auto-suggest dark/light theme based on time
 - notification_fatigue: Too many notifications suggest muting
 - auto_shutdown_recommendation: Suggest scheduled shutdown
 - update_available: OS or app updates available
 - malware_scan_suggestion: Suggest running security scan
-- defrag_recommendation: Storage optimization suggestion
 - connectivity_issue: WiFi/network reliability problems
 """
 
