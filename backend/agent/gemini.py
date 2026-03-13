@@ -20,6 +20,7 @@ from shared.schemas import (
 from backend.router.parser import serialize_server_payload
 from backend.agent.memory_tier2 import MemoryTier2
 from backend.agent.memory_tier3 import MemoryTier3
+from backend.agent.voice_config import VoicePreferencesManager
 
 logger = logging.getLogger(__name__)
 
@@ -212,11 +213,7 @@ class GeminiOrchestrator:
             ),
             tools=system_tools,
             response_modalities=["AUDIO"],
-            speech_config=types.SpeechConfig(
-                voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Aoede")
-                )
-            ),
+            speech_config=VoicePreferencesManager(api_key=os.getenv("GEMINI_API_KEY")).get_speech_config(),
             output_audio_transcription=types.AudioTranscriptionConfig(),
         )
         try:

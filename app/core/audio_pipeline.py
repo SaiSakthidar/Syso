@@ -37,11 +37,13 @@ class AudioPipeline:
                 self.on_log("ERROR", "PICOVOICE_ACCESS_KEY not found in environment")
                 self.porcupine = None
             else:
+                wake_dir = os.path.join(os.path.dirname(__file__), "..", "..", "ハロシソ_ja_linux_v4_0_0")
                 self.porcupine = pvporcupine.create(
                     access_key=access_key,
-                    keywords=["jarvis"],  # Use default 'jarvis' keyword
+                    keyword_paths=[os.path.join(wake_dir, "ハロシソ_ja_linux_v4_0_0.ppn")],
+                    model_path=os.path.join(wake_dir, "porcupine_params_ja.pv"),
                 )
-                self.on_log("INFO", "Loaded pvporcupine wake word: 'jarvis'")
+                self.on_log("INFO", "Loaded pvporcupine wake word: 'ハロシソ'")
         except Exception as e:
             self.on_log("ERROR", f"Failed to initialize pvporcupine: {e}")
             self.porcupine = None
@@ -213,7 +215,7 @@ class AudioPipeline:
                             has_speech and silence_frames >= max_silence_after_speech
                         )
                         hit_idle_timeout = (
-                            not has_speech and idle_frames >= max_idle_before_speech
+                            not has_speech and idle_frames >= max_silence_before_speech
                         )
                         hit_max_length = total_recorded_frames >= max_recording_frames
 

@@ -1521,11 +1521,11 @@ wheels = [
 
 [[package]]
 name = "pvporcupine"
-version = "3.0.1"
+version = "4.0.2"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/fb/d3/87b08b3a2abc9bca47e6d9f9156a1160dff27149d7bcf06848e7c8bc8042/pvporcupine-3.0.1.tar.gz", hash = "sha256:deee0f86b35226c3b884c8befd2ef054acbbcfa8203854eb9d3d2bd8667708f4", size = 2694349, upload-time = "2023-11-16T19:28:09.868Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ec/41/e3f9f931b4dcf2288ce132015e62372a0395e7ae70789d5b7335bc893f21/pvporcupine-4.0.2.tar.gz", hash = "sha256:922e64bba176f7a8536c660ee5933a8de80ad9116c4d886d5db85d054a8ac3d2", size = 3642087, upload-time = "2026-02-13T06:41:59.526Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7e/97/37429fa6bfa07ed960d8852b08dc2be95b852d4304fec6884eb47f20386c/pvporcupine-3.0.1-py3-none-any.whl", hash = "sha256:62ff9495a46df8092ba8f0991c863097d782025b4fcbe644a34bc66a70840886", size = 2709328, upload-time = "2023-11-16T19:28:06.796Z" },
+    { url = "https://files.pythonhosted.org/packages/ea/88/72d5f210e6b2da2cc82bb7691883b03d9015cb556bca9f02138a127a97f5/pvporcupine-4.0.2-py3-none-any.whl", hash = "sha256:6bf5863469a45789e8150dd94779ba6051e8d3d860b486d72497cc6ecc7bafab", size = 3658714, upload-time = "2026-02-13T06:41:56.746Z" },
 ]
 
 [[package]]
@@ -2381,7 +2381,7 @@ requires-dist = [
     { name = "msgpack", specifier = "==1.0.8" },
     { name = "pillow", specifier = "==10.2.0" },
     { name = "psutil", specifier = "==5.9.8" },
-    { name = "pvporcupine", specifier = "==3.0.1" },
+    { name = "pvporcupine", specifier = "==4.0.2" },
     { name = "pyaudio", specifier = "==0.2.14" },
     { name = "pydantic", specifier = "==2.9.0" },
     { name = "pygame", specifier = ">=2.6.1" },
