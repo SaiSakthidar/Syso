@@ -191,6 +191,34 @@ system_tools = [
                     required=["action"],
                 ),
             ),
+            types.FunctionDeclaration(
+                name="set_dnd_mode",
+                description=(
+                    "Enables or disables GNOME Do Not Disturb mode, which suppresses "
+                    "notification pop-ups. Use during meetings or focus sessions."
+                ),
+                parameters=types.Schema(
+                    type="OBJECT",
+                    properties={
+                        "action": types.Schema(
+                            type="STRING",
+                            description="'on' to enable DND (suppress notifications), 'off' to disable it.",
+                        ),
+                    },
+                    required=["action"],
+                ),
+            ),
+            types.FunctionDeclaration(
+                name="detect_active_meeting",
+                description=(
+                    "Checks whether a video-conferencing meeting is currently active "
+                    "(Google Meet, Zoom, Teams, Webex, etc.) by scanning open window titles."
+                ),
+                parameters=types.Schema(
+                    type="OBJECT",
+                    properties={},
+                ),
+            ),
         ]
     )
 ]
