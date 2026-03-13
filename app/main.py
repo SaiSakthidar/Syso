@@ -6,6 +6,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from app.gui.main_window import MainWindow
 from app.core.websocket_client import SystemCaretakerClient
+from app.core import ui_events
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -18,8 +19,18 @@ def main():
     app.debug_panel.append_log(
         "System Caretaker GUI initialized natively.", level="SYSTEM"
     )
+    
+    from datetime import datetime
+    hour = datetime.now().hour
+    if 5 <= hour < 12:
+        greeting = "Good morning"
+    elif 12 <= hour < 18:
+        greeting = "Good afternoon"
+    else:
+        greeting = "Good evening"
+        
     app.chat_panel.append_message(
-        "System", "Welcome to System Caretaker! Type a manual command below."
+        "System", f"{greeting}! System Caretaker is ready. How can I help you today?"
     )
 
     def on_log(level, msg):
@@ -51,6 +62,16 @@ def main():
 
     pipeline.start()
     client.start()
+
+    # Poll for UI events posted by tools (e.g. show_dashboard)
+    def _poll_ui_events():
+        event = ui_events.poll()
+        if event == "show_dashboard":
+            from app.gui.system_dashboard import SystemDashboard
+            SystemDashboard(app)
+        app.after(200, _poll_ui_events)
+
+    app.after(200, _poll_ui_events)
 
     # Run the main Native OS UI threading loop
     app.mainloop()

@@ -101,7 +101,9 @@ class MonitoringEngine:
 
     async def run(self):
         """Main monitoring loop — runs until cancelled."""
-        logger.info("Monitoring Engine started.")
+        logger.info("Monitoring Engine starting in 60 seconds...")
+        await asyncio.sleep(60) # Startup delay requested by user
+        logger.info("Monitoring Engine active.")
         drain_task = asyncio.create_task(self._alert_drain_loop())
         try:
             while True:

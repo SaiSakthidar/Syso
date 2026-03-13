@@ -534,6 +534,45 @@ def detect_active_meeting() -> Dict[str, Any]:
         return {"status": "error", "message": str(e)}
 
 
+def show_system_dashboard() -> Dict[str, Any]:
+    """Opens the full-screen system status dashboard in the UI."""
+    try:
+        from app.core import ui_events
+        ui_events.post("show_dashboard")
+        return {"status": "success", "message": "System dashboard opened."}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# Dictionary matching schema names to functions
+def get_battery_status() -> Dict[str, Any]:
+    """Returns current battery level, charging state, and estimated time remaining."""
+    try:
+        import psutil
+        battery = psutil.sensors_battery()
+        if battery is None:
+            return {"status": "success", "available": False, "message": "No battery detected (likely a desktop)."}
+        secs_left = battery.secsleft
+        if secs_left == psutil.POWER_TIME_UNLIMITED:
+            time_left = "Charging (unlimited)"
+        elif secs_left == psutil.POWER_TIME_UNKNOWN:
+            time_left = "Unknown"
+        else:
+            hours, rem = divmod(int(secs_left), 3600)
+            mins = rem // 60
+            time_left = f"{hours}h {mins}m remaining"
+        return {
+            "status": "success",
+            "available": True,
+            "percent": round(battery.percent, 1),
+            "plugged_in": battery.power_plugged,
+            "charging": battery.power_plugged and battery.percent < 100,
+            "time_left": time_left,
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 # Dictionary matching schema names to functions
 LOCAL_TOOLS = {
     "get_system_health": get_system_health,
@@ -554,4 +593,6 @@ LOCAL_TOOLS = {
     "manage_bluetooth": manage_bluetooth,
     "set_dnd_mode": set_dnd_mode,
     "detect_active_meeting": detect_active_meeting,
+    "get_battery_status": get_battery_status,
+    "show_system_dashboard": show_system_dashboard,
 }

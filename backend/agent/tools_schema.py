@@ -219,6 +219,30 @@ system_tools = [
                     properties={},
                 ),
             ),
+            types.FunctionDeclaration(
+                name="get_battery_status",
+                description=(
+                    "Returns the current battery level (%), whether it is plugged in/charging, "
+                    "and estimated time remaining. Returns a message if no battery is detected (e.g. desktop)."
+                ),
+                parameters=types.Schema(
+                    type="OBJECT",
+                    properties={},
+                ),
+            ),
+            types.FunctionDeclaration(
+                name="show_system_dashboard",
+                description=(
+                    "Opens a full-screen real-time system status dashboard in the UI, "
+                    "showing CPU, RAM, disk, battery, network I/O, and top processes. "
+                    "Call this when the user asks to 'show system status', 'show metrics', "
+                    "'open dashboard', or similar."
+                ),
+                parameters=types.Schema(
+                    type="OBJECT",
+                    properties={},
+                ),
+            ),
         ]
     )
 ]
