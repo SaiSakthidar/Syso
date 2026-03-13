@@ -30,23 +30,27 @@ class MainWindow(ctk.CTk):
         # Start checking the queue for updates
         self.after(100, self._process_ui_queue)
 
-    def _hide_to_tray(self):
-        self.withdraw()  # Hide UI
+        # Always run tray icon
         self._spawn_tray_icon()
 
+    def _hide_to_tray(self):
+        self.withdraw()  # Hide UI
+
     def _spawn_tray_icon(self):
-        from PIL import Image, ImageDraw
+        from PIL import Image
         import pystray
         import threading
+        import os
 
-        # Generate a cool default icon on the fly
-        image = Image.new("RGB", (64, 64), color=(30, 30, 30))
-        draw = ImageDraw.Draw(image)
-        draw.ellipse((16, 16, 48, 48), fill=(0, 150, 255))
-        draw.ellipse((24, 24, 40, 40), fill=(255, 255, 255))
+        # Load the custom jarvis icon
+        icon_path = os.path.join(
+            os.path.dirname(__file__), "..", "assets", "jarvis.png"
+        )
+        self.base_tray_image = Image.open(icon_path)
+        self._is_recording = False
+        self._tray_blink_state = False
 
         def show_window(icon, item):
-            icon.stop()
             self.after(0, self.deiconify)  # Safely bring back UI on main thread
 
         def quit_app(icon, item):
@@ -59,11 +63,37 @@ class MainWindow(ctk.CTk):
         )
 
         self.tray_icon = pystray.Icon(
-            "system_caretaker", image, "System Caretaker", menu
+            "system_caretaker", self.base_tray_image, "System Caretaker", menu
         )
 
         # Run pystray blocking loop in a bg thread
         threading.Thread(target=self.tray_icon.run, daemon=True).start()
+
+    def set_tray_recording_state(self, is_recording: bool):
+        if not hasattr(self, "tray_icon"):
+            return
+        self._is_recording = is_recording
+        if is_recording:
+            self._tray_blink_state = True
+            self._animate_tray()
+        else:
+            self.tray_icon.icon = self.base_tray_image
+
+    def _animate_tray(self):
+        if not self._is_recording or not hasattr(self, "base_tray_image"):
+            return
+        from PIL import ImageDraw
+
+        animated_image = self.base_tray_image.copy()
+        if self._tray_blink_state:
+            draw = ImageDraw.Draw(animated_image)
+            w, h = animated_image.size
+            r = w // 5
+            draw.ellipse([w - r * 2, h - r * 2, w, h], fill="red")
+
+        self.tray_icon.icon = animated_image
+        self._tray_blink_state = not self._tray_blink_state
+        self.after(500, self._animate_tray)
 
     def _create_widgets(self):
         self.chat_panel = ChatPanel(self, on_submit=self._handle_user_input)
