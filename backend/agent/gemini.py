@@ -175,6 +175,20 @@ class GeminiOrchestrator:
                     )
                 )
 
+            elif payload.type == "settings_update":
+                # Handle voice profile and volume settings from frontend
+                logger.info(f"Settings update: {payload.setting} = {payload.value}")
+                
+                if payload.setting == "voice":
+                    # Initialize voice manager and update voice preference
+                    voice_manager = VoicePreferencesManager(api_key=os.getenv("GEMINI_API_KEY"))
+                    result = voice_manager.set_voice(payload.value)
+                    logger.info(f"Voice updated: {result}")
+                
+                elif payload.setting == "volume":
+                    # Store volume preference (could be persisted per session)
+                    logger.info(f"Volume set to: {payload.value}%")
+
         except Exception as e:
             logger.error(f"Error handling payload: {e}", exc_info=True)
             await self.send_to_client(

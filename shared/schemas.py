@@ -41,7 +41,13 @@ class ClientInterrupt(BaseModel):
     """Signals the server to preemptively abort the active audio generation turn."""
     type: Literal["interrupt"] = "interrupt"
 
-WsClientPayload = Union[ClientMetrics, ClientText, ClientAudio, ClientImage, ClientToolResult, ClientInterrupt]
+class ClientSettingsUpdate(BaseModel):
+    """Client updates settings (voice profile, volume, etc.)"""
+    type: Literal["settings_update"] = "settings_update"
+    setting: str  # "voice", "volume", etc.
+    value: Any  # The value for the setting
+
+WsClientPayload = Union[ClientMetrics, ClientText, ClientAudio, ClientImage, ClientToolResult, ClientInterrupt, ClientSettingsUpdate]
 
 # --- BACKEND TO CLIENT (Server sends) ---
 class ServerText(BaseModel):
