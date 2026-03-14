@@ -3,7 +3,7 @@ MainWindow — Application shell.
 
 • System-aware appearance (auto light/dark) with green colour theme
 • Deep navy background matching the dark palette
-• Two-panel layout: chat (weight=3) | debug sidebar (weight=2)
+• Two-panel layout: chat (weight=3) | debug sidebar (weight=2) + Settings dashboard
 • System tray with green recording blink dot
 """
 
@@ -14,6 +14,7 @@ import customtkinter as ctk
 from app.gui import theme
 from app.gui.chat_panel import ChatPanel
 from app.gui.debug_panel import DebugPanel
+from app.gui.settings_panel import SettingsPanel
 
 # Apply theme BEFORE any widget is created
 theme.apply_theme()
@@ -30,12 +31,12 @@ class MainWindow(ctk.CTk):
         # Deep navy root background
         self.configure(fg_color=(theme.LIGHT_ROOT, theme.DARK_ROOT))
 
-        # Grid: chat(3) | debug sidebar(2)
+        # Grid: row 0 = main content, with settings button in top-right corner
         self.grid_rowconfigure(0, weight=1)
-        self.grid_columnconfigure(0, weight=3)
-        self.grid_columnconfigure(1, weight=2)
+        self.grid_columnconfigure(0, weight=1)
 
         self.ui_queue = queue.Queue()
+        self.current_view = "main"  # Track which view is active
 
         self._create_widgets()
         self.protocol("WM_DELETE_WINDOW", self._hide_to_tray)
@@ -45,7 +46,20 @@ class MainWindow(ctk.CTk):
     # ── Widgets ───────────────────────────────────────────────────────────────
 
     def _create_widgets(self):
-        self.chat_panel = ChatPanel(self, on_submit=self._handle_user_input)
+        # Main container with both main view and settings
+        self.container = ctk.CTkFrame(self, fg_color="transparent")
+        self.container.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        self.container.grid_rowconfigure(0, weight=1)
+        self.container.grid_columnconfigure(0, weight=1)
+
+        # Create main view (chat + debug panels)
+        self.main_view = ctk.CTkFrame(self.container, fg_color="transparent")
+        self.main_view.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        self.main_view.grid_rowconfigure(0, weight=1)
+        self.main_view.grid_columnconfigure(0, weight=3)
+        self.main_view.grid_columnconfigure(1, weight=2)
+
+        self.chat_panel = ChatPanel(self.main_view, on_submit=self._handle_user_input)
         self.chat_panel.grid(
             row=0,
             column=0,
@@ -54,7 +68,7 @@ class MainWindow(ctk.CTk):
             pady=theme.PAD_LG,
         )
 
-        self.debug_panel = DebugPanel(self)
+        self.debug_panel = DebugPanel(self.main_view)
         self.debug_panel.grid(
             row=0,
             column=1,
@@ -62,6 +76,70 @@ class MainWindow(ctk.CTk):
             padx=(theme.PAD_SM, theme.PAD_LG),
             pady=theme.PAD_LG,
         )
+
+        # Create settings view
+        self.settings_panel = SettingsPanel(
+            self.container,
+            on_back=self._show_main_view,
+            on_settings_change=self._handle_settings_change,
+        )
+        # Initially hidden
+        self.settings_panel.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        self.settings_panel.grid_remove()
+
+        # Add settings button to top-right corner (overlay)
+        self._create_settings_button()
+
+    def _create_settings_button(self):
+        """Create floating settings button in top-right corner"""
+        # Create a floating frame for the button
+        self.settings_btn_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.settings_btn_frame.place(relx=0.98, rely=0.02, anchor="ne")
+
+        self.settings_btn = ctk.CTkButton(
+            self.settings_btn_frame,
+            text="⚙ Settings",
+            width=100,
+            height=36,
+            fg_color=theme.GREEN_PRIMARY,
+            hover_color=theme.GREEN_HOVER,
+            command=self._show_settings_view,
+            font=("Inter", 11, "bold"),
+            corner_radius=theme.RADIUS_MD,
+        )
+        self.settings_btn.pack(padx=theme.PAD_MD, pady=theme.PAD_MD)
+
+    def _show_settings_view(self):
+        """Switch to settings view"""
+        self.current_view = "settings"
+        self.main_view.grid_remove()
+        self.settings_panel.grid()
+        self.settings_btn_frame.place_forget()
+
+    def _show_main_view(self):
+        """Switch back to main view"""
+        self.current_view = "main"
+        self.settings_panel.grid_remove()
+        self.main_view.grid()
+        self.settings_btn_frame.place(relx=0.98, rely=0.02, anchor="ne")
+
+    def _handle_settings_change(self, setting_name: str, value):
+        """Handle settings changes and propagate to backend"""
+        self.debug_panel.append_log(
+            f"Settings updated: {setting_name} = {value}", level="SYSTEM"
+        )
+
+        # If websocket client is available, send the settings
+        if hasattr(self, "ws_client") and self.ws_client:
+            from shared.schemas import ClientSettingsUpdate
+
+            try:
+                payload = ClientSettingsUpdate(setting=setting_name, value=value)
+                self.ws_client.enqueue_payload(payload)
+            except Exception as e:
+                self.debug_panel.append_log(
+                    f"Failed to send settings: {str(e)}", level="ERROR"
+                )
 
     # ── User input ────────────────────────────────────────────────────────────
 
