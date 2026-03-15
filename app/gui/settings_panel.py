@@ -178,6 +178,9 @@ class SettingsPanel(ctk.CTkFrame):
         # Section 2: Volume Control
         self._build_volume_section(scroll_frame)
 
+        # Section 3: Agent Verbosity
+        self._build_verbosity_section(scroll_frame)
+
     def _build_voice_section(self, parent):
         """Voice profile selector with dropdown and description"""
         section_frame = ctk.CTkFrame(
@@ -319,7 +322,59 @@ class SettingsPanel(ctk.CTkFrame):
             pady=(0, theme.PAD_MD),
         )
 
+    def _build_verbosity_section(self, parent):
+        """Verbosity/Personality selection"""
+        section_frame = ctk.CTkFrame(
+            parent,
+            fg_color=(theme.LIGHT_SURFACE, theme.DARK_SURFACE),
+            corner_radius=theme.RADIUS_MD,
+        )
+        section_frame.grid(row=2, column=0, sticky="ew", pady=theme.PAD_MD)
+        section_frame.grid_columnconfigure(0, weight=1)
+
+        # Title
+        title_label = ctk.CTkLabel(
+            section_frame,
+            text="Agent Talkativeness",
+            font=("Inter", 14, "bold"),
+            text_color=(theme.LIGHT_TEXT, theme.DARK_TEXT),
+        )
+        title_label.grid(row=0, column=0, sticky="w", padx=theme.PAD_MD, pady=(theme.PAD_MD, theme.PAD_SM))
+
+        # Segmented button
+        self.v_segmented = ctk.CTkSegmentedButton(
+            section_frame,
+            values=["Silent", "Moderate", "Chatty"],
+            command=self._on_verbosity_changed,
+            fg_color=(theme.LIGHT_ELEVATED, theme.DARK_ELEVATED),
+            selected_color=theme.GREEN_PRIMARY,
+            selected_hover_color=theme.GREEN_HOVER,
+            unselected_color=(theme.LIGHT_BORDER, theme.DARK_BORDER),
+            unselected_hover_color=theme.GREEN_HOVER,
+            dynamic_resizing=False,
+            height=36,
+        )
+        current_v = self.settings.get("verbosity", "moderate").capitalize()
+        self.v_segmented.set(current_v)
+        self.v_segmented.grid(row=1, column=0, sticky="ew", padx=theme.PAD_MD, pady=theme.PAD_SM)
+
+        # Info text
+        info_label = ctk.CTkLabel(
+            section_frame,
+            text="Control how much Syso speaks and its personality style.",
+            font=("Inter", 10),
+            text_color=(theme.LIGHT_MUTED, theme.DARK_MUTED),
+        )
+        info_label.grid(row=2, column=0, sticky="w", padx=theme.PAD_MD, pady=(0, theme.PAD_MD))
+
     # ── Callbacks ──────────────────────────────────────────────────────────────
+
+    def _on_verbosity_changed(self, value: str):
+        """Handle verbosity selection"""
+        v_key = value.lower()
+        self.settings["verbosity"] = v_key
+        self._save_settings()
+        self.on_settings_change("verbosity", v_key)
 
     def _on_voice_changed(self, choice: str):
         """Handle voice profile selection"""
@@ -357,6 +412,7 @@ class SettingsPanel(ctk.CTkFrame):
         return {
             "voice": "aoede",
             "volume": 100,
+            "verbosity": "moderate",
         }
 
     def _save_settings(self) -> None:

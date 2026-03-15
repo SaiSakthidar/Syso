@@ -18,14 +18,17 @@ class MemoryTier3:
     User Profile Manager for semantic and preference memory.
     """
 
-    def __init__(self, profile_path: str = "data/user_profile.json"):
+    def __init__(self, user_id: str = "guest", base_dir: str = "data"):
         """
         Initialize or load user profile.
 
         Args:
-            profile_path: Path to user_profile.json
+            user_id: Unique user identifier (e.g., from Google OAuth)
+            base_dir: Base directory for data storage
         """
-        self.profile_path = Path(profile_path)
+        self.user_id = user_id
+        self.base_dir = Path(base_dir)
+        self.profile_path = self.base_dir / "profiles" / f"{user_id}.json"
         self.profile_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Load or create default profile
@@ -45,6 +48,7 @@ class MemoryTier3:
         """
         return {
             "user_id": "user_0",
+            "name": None,  # Captured during onboarding
             "created_at": datetime.now().isoformat(),
             "last_updated": datetime.now().isoformat(),
             "preferences": {
@@ -52,6 +56,7 @@ class MemoryTier3:
                 "auto_actions": {},  # Auto-actions (e.g., close Chrome on high RAM)
                 "theme": "light",
                 "auto_shutdown_time": None,
+                "verbosity": "moderate",  # chatty, moderate, silent
             },
             "learned_behaviors": [],  # From promoted Tier 2 events
             "blacklist": [],  # Suggestions never to show again

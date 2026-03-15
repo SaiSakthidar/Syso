@@ -20,26 +20,38 @@ from shared.schemas import (
 from backend.router.parser import serialize_server_payload
 from backend.agent.memory_tier2 import MemoryTier2
 from backend.agent.memory_tier3 import MemoryTier3
-from backend.agent.voice_config import VoicePreferencesManager
 
 logger = logging.getLogger(__name__)
 
 
 class GeminiOrchestrator:
-    def __init__(self, websocket):
+    def __init__(self, websocket, user_id: str = "guest"):
         self.websocket = websocket
+        self.user_id = user_id
 
         self.client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-        self.tier2 = MemoryTier2()
-        self.tier3 = MemoryTier3()
-        profile_summary = json.dumps(self.tier3.get_profile(), indent=2)
+        # Initialize cloud-aware memory tiers
+        base_dir = os.getenv("DATA_PATH", "data")
+        self.tier2 = MemoryTier2(user_id=user_id, base_dir=base_dir)
+        self.tier3 = MemoryTier3(user_id=user_id, base_dir=base_dir)
+        
+        profile = self.tier3.get_profile()
+        profile_summary = profile.get("summary", "New user, no learned preferences yet.")
+        verbosity = profile["preferences"].get("verbosity", "moderate")
+
+        verbosity_instructions = {
+            "chatty": "Be extremely conversational, friendly, and expressive. Provide detailed explanations, proactive insights, and engage in natural small talk.",
+            "moderate": "Be helpful, proactive, and balanced. Provide clear but concise answers. Strike a balance between personality and efficiency.",
+            "silent": "Be extremely brief and efficient. Reply with the absolute minimum number of words necessary. Avoid all small talk or pleasantries.",
+        }
+        v_constraint = verbosity_instructions.get(verbosity, verbosity_instructions["moderate"])
 
         self.system_instruction = (
             "You are 'System Caretaker', an automatic system operator and caretaker running on the user's machine. "
             "You help monitor system vitals, handle user queries (text/audio), and use tools to manage their OS. "
             "You have access to current system metrics provided by the user. "
-            "Be helpful, proactive, and concise. Don't be too verbose unless explicitly asked to.\n\n"
+            f"PERSONALITY: {v_constraint}\n\n"
             "IMPORTANT: You have powerful tools available. USE THEM whenever relevant:\n"
             "- get_desktop_picture: Takes a screenshot of the user's screen so you can SEE what they see.\n"
             "- get_system_health: Gets current CPU, RAM, disk metrics.\n"
@@ -148,6 +160,15 @@ class GeminiOrchestrator:
                 # 2. Add an explicit interrupt command to send to Gemini
                 await self._send_queue.put(("interrupt", None))
 
+            elif payload.type == "settings_update":
+                logger.info(f"Settings update: {payload.setting} = {payload.value}")
+                
+                if payload.setting == "verbosity":
+                    self.tier3.add_preference("verbosity", payload.value)
+                    # Note: Gemini instructions only update on next session/re-connect 
+                    # unless we update live config. For now, it updates on next boot.
+                    logger.info(f"Verbosity preference updated in Tier 3: {payload.value}")
+
             elif payload.type == "tool_result":
                 if payload.call_id not in self.pending_tool_calls:
                     logger.warning(f"Unknown tool result call_id: {payload.call_id}")
@@ -174,20 +195,6 @@ class GeminiOrchestrator:
                         (payload.call_id, tool_name, payload.status, payload.message),
                     )
                 )
-
-            elif payload.type == "settings_update":
-                # Handle voice profile and volume settings from frontend
-                logger.info(f"Settings update: {payload.setting} = {payload.value}")
-                
-                if payload.setting == "voice":
-                    # Initialize voice manager and update voice preference
-                    voice_manager = VoicePreferencesManager(api_key=os.getenv("GEMINI_API_KEY"))
-                    result = voice_manager.set_voice(payload.value)
-                    logger.info(f"Voice updated: {result}")
-                
-                elif payload.setting == "volume":
-                    # Store volume preference (could be persisted per session)
-                    logger.info(f"Volume set to: {payload.value}%")
 
         except Exception as e:
             logger.error(f"Error handling payload: {e}", exc_info=True)
@@ -227,7 +234,11 @@ class GeminiOrchestrator:
             ),
             tools=system_tools,
             response_modalities=["AUDIO"],
-            speech_config=VoicePreferencesManager(api_key=os.getenv("GEMINI_API_KEY")).get_speech_config(),
+            speech_config=types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Aoede")
+                )
+            ),
             output_audio_transcription=types.AudioTranscriptionConfig(),
         )
         try:

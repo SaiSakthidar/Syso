@@ -353,7 +353,7 @@ class MonitoringEngine:
         if not self._can_fire("meeting_dnd", now):
             return
         MEETING_KEYWORDS = [
-            "meet.google.com", "google meet",
+            "meet.google.com", "google meet", "meet -",
             "zoom meeting", "zoom",
             "microsoft teams", "teams.microsoft.com",
             "webex", "jitsi", "bluejeans",

@@ -15,6 +15,7 @@ from app.gui import theme
 from app.gui.chat_panel import ChatPanel
 from app.gui.debug_panel import DebugPanel
 from app.gui.settings_panel import SettingsPanel
+from app.core import ui_events
 
 # Apply theme BEFORE any widget is created
 theme.apply_theme()
@@ -159,13 +160,24 @@ class MainWindow(ctk.CTk):
         self.ui_queue.put(job_fn)
 
     def _process_ui_queue(self):
+        # 1. Process regular callable jobs (from on_log, on_chat_msg, etc.)
         try:
             while True:
                 self.ui_queue.get_nowait()()
         except queue.Empty:
             pass
-        finally:
-            self.after(100, self._process_ui_queue)
+
+        # 2. Process system events from tools (show_dashboard, etc.)
+        while True:
+            event = ui_events.poll()
+            if not event:
+                break
+            if event == "show_dashboard":
+                from app.gui.system_dashboard import SystemDashboard
+                SystemDashboard(self)
+                self.debug_panel.append_log("UI Event Received: show_dashboard", level="SYSTEM")
+
+        self.after(100, self._process_ui_queue)
 
     # ── System tray ───────────────────────────────────────────────────────────
 

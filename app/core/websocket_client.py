@@ -24,8 +24,15 @@ class SystemCaretakerClient:
         uri: str,
         on_log: Callable[[str, str], None],
         on_chat_msg: Callable[[str, str], None],
+        user_id: str = "guest",
     ):
         self.uri = uri
+        self.user_id = user_id
+        if "?" in self.uri:
+            self.full_uri = f"{self.uri}&user_id={user_id}"
+        else:
+            self.full_uri = f"{self.uri}?user_id={user_id}"
+            
         self.on_log = on_log
         self.on_chat_msg = on_chat_msg
 
@@ -187,12 +194,19 @@ class SystemCaretakerClient:
     async def _send_loop(self):
         while True:
             payload: WsClientPayload = await self._outbound_queue.get()
+            if not self._ws or not self.running:
+                continue
+
             try:
                 data_dict = payload.model_dump()
                 raw_bytes = msgpack.packb(data_dict, use_bin_type=True)
                 await self._ws.send(raw_bytes)
+            except websockets.exceptions.ConnectionClosed:
+                # Connection closed while sending, ignore as the main loop will reconnect
+                pass
             except Exception as e:
-                self.on_log("ERROR", f"Failed to send payload: {e}")
+                if self.running:
+                    self.on_log("ERROR", f"Failed to send payload: {e}")
 
     async def _telemetry_loop(self):
         while True:

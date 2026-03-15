@@ -25,6 +25,9 @@ dependencies = [
     "pystray==0.19.5",
     "pygame>=2.6.1",
     "chromadb>=1.5.5",
+    "authlib>=1.6.9",
+    "httpx>=0.28.1",
+    "itsdangerous>=2.2.0",
 ]
 
 [project.optional-dependencies]

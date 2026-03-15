@@ -1,5 +1,14 @@
 venv/
+.venv/
 __pycache__/
 *.pyc
 .env
 .DS_Store
+data/
+terraform/.terraform/
+terraform/terraform.tfvars
+terraform/*.tfstate*
+node_modules/
+dist/
+build/
+*.log

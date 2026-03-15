@@ -1,4 +1,5 @@
 {
   "voice": "sulafat",
-  "volume": 3
+  "volume": 32,
+  "verbosity": "chatty"
 }

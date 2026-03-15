@@ -28,11 +28,14 @@ Event Types (Future System Monitoring - Not Yet Implemented):
 """
 
 import json
+import logging
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 import math
+
+logger = logging.getLogger(__name__)
 
 try:
     import chromadb
@@ -41,32 +44,55 @@ except ImportError:
     chromadb = None
 
 
+# Global singleton for ChromaDB clients (partitioned by path to prevent collision)
+_CHROMA_CLIENTS: Dict[str, Any] = {}
+
 class MemoryTier2:
     """
     Episodic Memory Manager for system events, suggestions, and outcomes.
     """
 
-    def __init__(self, db_path: str = "data/chroma_db"):
+    def __init__(self, user_id: str = "guest", base_dir: str = "data"):
         """
         Initialize ChromaDB client and create/load collection.
 
         Args:
-            db_path: Path to ChromaDB persistence directory
+            user_id: Unique user identifier for collection isolation
+            base_dir: Path to ChromaDB persistence directory
         """
         if chromadb is None:
             raise ImportError("ChromaDB not installed. Run: pip install chromadb")
 
-        self.db_path = Path(db_path)
-        self.db_path.mkdir(parents=True, exist_ok=True)
+        self.user_id = user_id
+        # Use an absolute path and log it to help debug cloud synchronization
+        resolved_base = Path(base_dir).resolve()
+        self.db_path = resolved_base / "chroma_db"
+        
+        try:
+            self.db_path.mkdir(parents=True, exist_ok=True)
+            import os
+            # Ensure the directory is writable by the current process
+            if not os.access(self.db_path, os.W_OK):
+                logger.warning(f"ChromaDB path {self.db_path} is NOT writable! Fallback to local 'data' may occur.")
+        except Exception as e:
+            logger.error(f"Failed to create ChromaDB directory at {self.db_path}: {e}")
 
-        # Initialize ChromaDB with persistence
-        self.client = chromadb.PersistentClient(
-            path=str(self.db_path), settings=Settings(anonymized_telemetry=False)
-        )
+        logger.info(f"MemoryTier2 initializing with db_path: {self.db_path}")
 
-        # Create or load collection
+        # Ensure singleton client per database path to prevent SQLite locking
+        client_key = str(self.db_path)
+        if client_key not in _CHROMA_CLIENTS:
+            _CHROMA_CLIENTS[client_key] = chromadb.PersistentClient(
+                path=client_key, 
+                settings=Settings(anonymized_telemetry=False, allow_reset=True)
+            )
+        
+        self.client = _CHROMA_CLIENTS[client_key]
+
+        # Create or load user-specific collection
+        collection_name = f"user_{user_id.replace('-', '_').replace('@', '_').replace('.', '_')}"
         self.collection = self.client.get_or_create_collection(
-            name="system_events", metadata={"hnsw:space": "cosine"}
+            name=collection_name, metadata={"hnsw:space": "cosine"}
         )
 
     def create_event(

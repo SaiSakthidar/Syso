@@ -499,6 +499,7 @@ def detect_active_meeting() -> Dict[str, Any]:
     MEETING_KEYWORDS = [
         "meet.google.com",
         "Google Meet",
+        "Meet -",
         "Zoom Meeting",
         "zoom",
         "Microsoft Teams",

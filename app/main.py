@@ -6,7 +6,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from app.gui.main_window import MainWindow
 from app.core.websocket_client import SystemCaretakerClient
-from app.core import ui_events
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -14,25 +13,12 @@ load_dotenv()
 
 def main():
     app = MainWindow()
+    # Initialize attributes to prevent AttributeErrors during late binding callbacks
+    app.ws_client = None
 
-    # Send a boot message
-    app.debug_panel.append_log(
-        "System Caretaker GUI initialized natively.", level="SYSTEM"
-    )
+    from app.gui.login_window import LoginWindow
     
-    from datetime import datetime
-    hour = datetime.now().hour
-    if 5 <= hour < 12:
-        greeting = "Good morning"
-    elif 12 <= hour < 18:
-        greeting = "Good afternoon"
-    else:
-        greeting = "Good evening"
-        
-    app.chat_panel.append_message(
-        "System", f"{greeting}! System Caretaker is ready. How can I help you today?"
-    )
-
+    # 1. Define UI Sync Callbacks first
     def on_log(level, msg):
         app.add_ui_job(lambda: app.debug_panel.append_log(msg, level=level))
 
@@ -48,37 +34,81 @@ def main():
                 lambda: app.chat_panel.append_message("System", "Listening...")
             )
 
-    client = SystemCaretakerClient("ws://localhost:8000/ws", on_log, on_chat_msg)
-    app.ws_client = client
-
+    # 2. Define Service Startup Logic
+    client = None
     from app.core.audio_pipeline import AudioPipeline
-
     pipeline = AudioPipeline(
         on_log=on_log,
         on_wake_word=on_wake_word,
-        on_audio_payload=lambda p: client.enqueue_payload(p),
+        on_audio_payload=lambda p: app.ws_client.enqueue_payload(p) if app.ws_client else None,
     )
-    client.set_audio_pipeline(pipeline)
-
     pipeline.start()
-    client.start()
 
-    # Poll for UI events posted by tools (e.g. show_dashboard)
-    def _poll_ui_events():
-        event = ui_events.poll()
-        if event == "show_dashboard":
-            from app.gui.system_dashboard import SystemDashboard
-            SystemDashboard(app)
-        app.after(200, _poll_ui_events)
+    def start_backend_services(uid: str):
+        nonlocal client
+        if app.ws_client:
+            app.ws_client.stop()
+            
+        # Update client with real identity for cloud-aware backend
+        # We use ?user_id= for the simple cloud architecture
+        client = SystemCaretakerClient("ws://34.14.201.124:8000/ws", on_log, on_chat_msg, user_id=uid)
+        app.ws_client = client
+        client.set_audio_pipeline(pipeline)
+        
+        # Start networking
+        client.start()
+        
+        # Refresh greeting with user name if available
+        if uid != "guest":
+            # For guest, greeting is already shown. For user, show welcome back.
+            pass
 
-    app.after(200, _poll_ui_events)
+    # 3. Define Auth Callbacks
+    is_authenticated = False
+    user_id = "guest"
+    
+    def on_login_complete(auth_data: dict):
+        nonlocal is_authenticated, user_id
+        is_authenticated = True
+        user_info = auth_data.get("user_info", {})
+        user_id = auth_data.get("user_id", "guest")
+        
+        user_name = user_info.get("name", "User")
+        app.chat_panel.append_message(
+            "System", f"Authentication successful! Welcome back, {user_name}."
+        )
+        start_backend_services(user_id)
+        app.deiconify()
+
+    def on_skip():
+        app.chat_panel.append_message(
+            "System", "Login skipped. Some features may be personalized once you sign in."
+        )
+        start_backend_services("guest")
+        app.deiconify()
+
+    # 4. Trigger Login Flow
+    if not is_authenticated:
+        app.withdraw()
+        app.after(100, lambda: LoginWindow(app, on_login_complete, on_skip))
+
+    # Send a boot message
+    app.debug_panel.append_log(
+        "System Caretaker GUI initialized natively.", level="SYSTEM"
+    )
+    app.chat_panel.append_message("System", "Welcome to Syso. Please sign in or skip to continue.")
+
+    # Initial start with guest if already authenticated (e.g. state management)
+    if is_authenticated:
+        start_backend_services(user_id)
 
     # Run the main Native OS UI threading loop
     app.mainloop()
 
     # Cleanup when window closed
     pipeline.stop()
-    client.stop()
+    if app.ws_client:
+        app.ws_client.stop()
 
 
 if __name__ == "__main__":
