@@ -15,7 +15,7 @@ Syso is an AI-powered system management agent that uses Gemini Multimodal Live A
 - high ram/cpu usage: RAM/CPU usage exceeds threshold
 - low storage: Disk space below threshold
 - high temperature: System temperature critical
-- heavy process detected: Individual process using excessive resources
+- heavy process detected: Individual process using excessive resources and suggests app closing
 - brightness change: Display brightness adjustment suggestion
 - volume change: Audio volume adjustment suggestion
 - network usage high: Network bandwidth spike detected
