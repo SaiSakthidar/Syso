@@ -151,6 +151,68 @@ class MemoryTier2:
 
         return event_id
 
+    def record_chat_message(self, role: str, text: str) -> str:
+        """
+        Record a text-based chat message in the episodic memory.
+        
+        Args:
+            role: "user" or "model"
+            text: The message content
+        """
+        message_id = str(uuid.uuid4())
+        timestamp = datetime.now().isoformat()
+        
+        # Serialize for storage
+        metadata = {
+            "event_type": "chat_message",
+            "role": role,
+            "timestamp": timestamp,
+            "promotion_status": "promoted", # Chat history is always relevant
+        }
+        
+        # We store chat as a simplified event document
+        event = {
+            "id": message_id,
+            "timestamp": timestamp,
+            "event_type": "chat_message",
+            "role": role,
+            "text": text,
+        }
+        
+        self.collection.add(
+            ids=[message_id],
+            documents=[json.dumps(event)],
+            metadatas=[metadata],
+        )
+        return message_id
+
+    def get_recent_chat_history(self, limit: int = 10) -> List[Dict[str, str]]:
+        """
+        Retrieve the latest chat messages for context restoration.
+        """
+        results = self.collection.get(
+            where={"event_type": {"$eq": "chat_message"}},
+            limit=limit,
+            include=["documents", "metadatas"]
+        )
+        
+        history = []
+        if results and results["documents"]:
+            # Sort by timestamp (Chroma doesn't guarantee order if not indexed for it, 
+            # so we parse and sort manually for safety)
+            docs = [json.loads(doc) for doc in results["documents"]]
+            docs.sort(key=lambda x: x["timestamp"])
+            
+            # Map roles for Gemini context
+            # Users role in Gemini is 'user', Model role is 'model'
+            for doc in docs:
+                history.append({
+                    "role": doc["role"],
+                    "text": doc["text"]
+                })
+        
+        return history
+
     def record_user_response(
         self,
         event_id: str,

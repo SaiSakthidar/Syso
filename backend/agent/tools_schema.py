@@ -243,6 +243,32 @@ system_tools = [
                     properties={},
                 ),
             ),
+            types.FunctionDeclaration(
+                name="scan_wifi_networks",
+                description="Scans for nearby Wi-Fi networks and returns a list with signal strength (SSID, Signal %, Bars, Security).",
+                parameters=types.Schema(
+                    type="OBJECT",
+                    properties={},
+                ),
+            ),
+            types.FunctionDeclaration(
+                name="connect_to_wifi",
+                description="Connects to a specific Wi-Fi network by SSID. Requires a password for protected networks.",
+                parameters=types.Schema(
+                    type="OBJECT",
+                    properties={
+                        "ssid": types.Schema(
+                            type="STRING",
+                            description="The SSID (name) of the Wi-Fi network.",
+                        ),
+                        "password": types.Schema(
+                            type="STRING",
+                            description="The password for the Wi-Fi network.",
+                        ),
+                    },
+                    required=["ssid"],
+                ),
+            ),
         ]
     )
 ]

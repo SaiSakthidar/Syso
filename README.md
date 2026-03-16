@@ -12,7 +12,7 @@ System Caretaker is built on a split architecture to separate heavy AI orchestra
 A lightweight daemon and GUI running locally on the system you want to manage.
 * **UI**: `CustomTkinter` providing a sleek text/chat interface and a live "Debug Feed" to visually monitor system health, screenshots, and agent decisions.
 * **Hardware Telemetry**: Background threads utilizing `psutil` and `Pillow` to constantly sample RAM, CPU, Disk, and gather desktop screenshots without freezing the main UI.
-* **Audio Pipeline**: Real-time `PyAudio` ingestion using `pvporcupine` for offline wake-word (`"Jarvis"`) detection, complete with an adaptive VAD (Voice Activity Detection) algorithm to parse human speech from background static.
+* **Audio Pipeline**: Real-time `PyAudio` ingestion using `pvporcupine` for offline wake-word (`"Hello Syso"`) detection, complete with an adaptive VAD (Voice Activity Detection) algorithm to parse human speech from background static.
 * **Local Tools Execution**: Secure wrapper functions mapped to native OS commands (`psutil`, `subprocess`) to execute actions securely on behalf of the AI.
 
 ### 2. The Cloud Backend (The Brain)
@@ -35,7 +35,7 @@ sequenceDiagram
     participant WS as FastAPI Router (Backend)
     participant AI as Gemini 2.5 Flash
 
-    User->>App: Says "Jarvis, why is my PC laggy?"
+    User->>App: Says "Hello Syso, why is my PC laggy?"
     App->>App: Porcupine Wake-Word triggers
     App->>App: Adaptive VAD stops recording at silence
     App->>App: Captures Screenshot & RAM Metrics
@@ -119,7 +119,7 @@ uv run python app/main.py
 ```
 
 ### 4. Interact!
-* Say: **"Jarvis"** followed by your query.
+* Say: **"Hello Syso"** followed by your query.
 * Or, simply type a manual command in the Chat Interface.
 
 ---
@@ -128,6 +128,6 @@ uv run python app/main.py
 
 Try out these primary flows designed for the demonstration:
 
-1. **Context-Aware Slowdown:** Open several heavy browser tabs, trigger Jarvis and ask *"Why is my PC lagging?"*. The agent will ingest the screenshot and stats, and offer to suspend the exact tabs hoarding your RAM.
+1. **Context-Aware Slowdown:** Open several heavy browser tabs, trigger Hello Syso and ask *"Why is my PC lagging?"*. The agent will ingest the screenshot and stats, and offer to suspend the exact tabs hoarding your RAM.
 2. **Silent Saboteur (Logs):** Crash a mocked video application, and state proactively: *"My video player just closed!"*. Caretaker will immediately scan system logs, find the graphics driver crash, and restart the target service.
-3. **Interrupted Study Session:** Ask Jarvis to *"Get ready for study"*. As it begins shutting down distracting apps, interrupt it: *"Wait, don't close Spotify!"*. The UI will instantly drop the tool action and modify its focus logic mid-execution.
+3. **Interrupted Study Session:** Ask Hello Syso to *"Get ready for study"*. As it begins shutting down distracting apps, interrupt it: *"Wait, don't close Spotify!"*. The UI will instantly drop the tool action and modify its focus logic mid-execution.

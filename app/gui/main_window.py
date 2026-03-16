@@ -132,8 +132,11 @@ class MainWindow(ctk.CTk):
 
         # If websocket client is available, send the settings
         if hasattr(self, "ws_client") and self.ws_client:
-            from shared.schemas import ClientSettingsUpdate
+            # Apply volume locally for immediate hardware response
+            if setting_name == "volume" and hasattr(self.ws_client, "audio_pipeline"):
+                self.ws_client.audio_pipeline.set_volume(value)
 
+            from shared.schemas import ClientSettingsUpdate
             try:
                 payload = ClientSettingsUpdate(setting=setting_name, value=value)
                 self.ws_client.enqueue_payload(payload)

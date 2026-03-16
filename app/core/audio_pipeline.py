@@ -5,6 +5,7 @@ import time
 import os
 import pygame
 import tempfile
+import audioop
 from typing import Callable, Optional
 
 from shared.schemas import ClientAudio, ClientInterrupt
@@ -62,6 +63,7 @@ class AudioPipeline:
         # Playback Jitter Buffer
         self.playback_queue = queue.Queue()
         self.is_playing = False
+        self.volume = 1.0  # 0.0 to 1.0
 
     def start(self):
         self.running = True
@@ -96,6 +98,12 @@ class AudioPipeline:
 
     def queue_playback(self, audio_bytes: bytes):
         self.playback_queue.put(audio_bytes)
+
+    def set_volume(self, volume_percent: int):
+        self.volume = max(0.0, min(1.0, volume_percent / 100.0))
+        if pygame.mixer.get_init():
+            pygame.mixer.music.set_volume(self.volume)
+        self.on_log("DEBUG", f"Local playback volume set to {self.volume:.2f}")
 
     def _listen_loop(self):
         audio_stream = None
@@ -156,7 +164,7 @@ class AudioPipeline:
                         bg_noise_rms = 0.9 * bg_noise_rms + 0.1 * rms
                         result = self.porcupine.process(pcm_unpacked)
                         if result >= 0:
-                            # "Jarvis" is loud → bg_noise_rms gets
+                            # "Hello Syso" is loud → bg_noise_rms gets
                             # inflated right before recording starts, raising the
                             # threshold so high that subsequent speech doesn't
                             # register and silence_frames climbs immediately.
@@ -294,6 +302,7 @@ class AudioPipeline:
                         tmp_name = f.name
                     try:
                         pygame.mixer.music.load(tmp_name)
+                        pygame.mixer.music.set_volume(self.volume)
                         pygame.mixer.music.play()
                         while pygame.mixer.music.get_busy() and self.is_playing:
                             time.sleep(0.05)
@@ -309,7 +318,9 @@ class AudioPipeline:
                     # Raw PCM → write directly into the open PyAudio stream (no gaps)
                     if pcm_stream and pcm_stream.is_active():
                         try:
-                            pcm_stream.write(audio_bytes)
+                            # Apply volume scaling to PCM
+                            scaled_audio = audioop.mul(audio_bytes, 2, self.volume)
+                            pcm_stream.write(scaled_audio)
                         except Exception as e:
                             self.on_log("ERROR", f"PCM stream write error: {e}")
 

@@ -70,8 +70,8 @@ class SystemCaretakerClient:
     async def _main_connection_loop(self):
         while self.running:
             try:
-                self.on_log("INFO", f"Connecting to {self.uri}...")
-                async with websockets.connect(self.uri) as ws:
+                self.on_log("INFO", f"Connecting to {self.full_uri}...")
+                async with websockets.connect(self.full_uri) as ws:
                     self._ws = ws
                     self.on_log("INFO", "Connected to Backend WS Server.")
 

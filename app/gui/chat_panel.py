@@ -189,7 +189,7 @@ class ChatPanel(ctk.CTkFrame):
 
         self._status_label = ctk.CTkLabel(
             self._orb_container,
-            text="Say Jarvis to begin…",
+            text="Say Hello Syso to begin…",
             font=ctk.CTkFont("Inter", 13),
             text_color=(theme.LIGHT_MUTED, theme.DARK_MUTED),
         )
@@ -266,7 +266,7 @@ class ChatPanel(ctk.CTkFrame):
             )
         else:
             self._status_label.configure(
-                text="Say Jarvis to begin…",
+                text="Say Hello Syso to begin…",
                 text_color=(theme.LIGHT_MUTED, theme.DARK_MUTED),
             )
 

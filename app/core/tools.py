@@ -4,7 +4,7 @@ import io
 import os
 import sys
 from PIL import ImageGrab
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from app.core.telemetry import TelemetryMonitor
 
 telemetry = TelemetryMonitor()
@@ -494,6 +494,53 @@ def manage_bluetooth(action: str) -> Dict[str, Any]:
         return {"status": "error", "message": str(e)}
 
 
+def scan_wifi_networks() -> Dict[str, Any]:
+    """Scans for nearby Wi-Fi networks and returns a list with signal strength."""
+    if sys.platform != "linux":
+        return {
+            "status": "error",
+            "message": "Wi-Fi scanning is currently only supported on Linux/Ubuntu.",
+        }
+    try:
+        # -f SSID,SIGNAL,BARS,SECURITY
+        result = subprocess.run(
+            ["nmcli", "-f", "SSID,SIGNAL,BARS,SECURITY", "dev", "wifi", "list"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return {"status": "success", "networks": result.stdout}
+    except subprocess.CalledProcessError as e:
+        return {
+            "status": "error",
+            "message": f"Failed to scan Wi-Fi: {e.stderr.decode()}",
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+def connect_to_wifi(ssid: str, password: Optional[str] = None) -> Dict[str, Any]:
+    """Connects to a Wi-Fi network with the given SSID and optional password."""
+    if sys.platform != "linux":
+        return {
+            "status": "error",
+            "message": "Wi-Fi connection is currently only supported on Linux/Ubuntu.",
+        }
+    try:
+        cmd = ["nmcli", "dev", "wifi", "connect", ssid]
+        if password:
+            cmd += ["password", password]
+
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        return {"status": "success", "message": f"Successfully connected to {ssid}: {result.stdout}"}
+    except subprocess.CalledProcessError as e:
+        return {
+            "status": "error",
+            "message": f"Failed to connect to {ssid}: {e.stderr.decode()}",
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 
 def set_dnd_mode(action: str) -> Dict[str, Any]:
     """Enable or disable GNOME Do Not Disturb (suppresses notification popups)."""
@@ -622,4 +669,7 @@ LOCAL_TOOLS = {
     "detect_active_meeting": detect_active_meeting,
     "get_battery_status": get_battery_status,
     "show_system_dashboard": show_system_dashboard,
+    "scan_wifi_networks": scan_wifi_networks,
+    "connect_to_wifi": connect_to_wifi,
+    "manage_airplane_mode": manage_airplane_mode,
 }

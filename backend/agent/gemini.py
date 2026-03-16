@@ -20,6 +20,7 @@ from shared.schemas import (
 from backend.router.parser import serialize_server_payload
 from backend.agent.memory_tier2 import MemoryTier2
 from backend.agent.memory_tier3 import MemoryTier3
+from backend.agent.voice_config import VoicePreferencesManager
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,10 @@ class GeminiOrchestrator:
         base_dir = os.getenv("DATA_PATH", "data")
         self.tier2 = MemoryTier2(user_id=user_id, base_dir=base_dir)
         self.tier3 = MemoryTier3(user_id=user_id, base_dir=base_dir)
+        self.voice_manager = VoicePreferencesManager(
+            api_key=os.getenv("GEMINI_API_KEY"),
+            prefs_file=os.path.join(base_dir, "voice_preferences.json")
+        )
         
         profile = self.tier3.get_profile()
         profile_summary = profile.get("summary", "New user, no learned preferences yet.")
@@ -117,6 +122,10 @@ class GeminiOrchestrator:
                     )
                     text += f"\n[Past Relevant Memory]: {json.dumps(past_events)}\n"
                     text += f"[Current System State]: {self.latest_metrics.model_dump_json()}"
+                
+                # Record user message in episodic memory
+                self.tier2.record_chat_message(role="user", text=payload.text)
+                
                 await self._send_queue.put(("text", text))
 
             elif payload.type == "image":
@@ -168,6 +177,12 @@ class GeminiOrchestrator:
                     # Note: Gemini instructions only update on next session/re-connect 
                     # unless we update live config. For now, it updates on next boot.
                     logger.info(f"Verbosity preference updated in Tier 3: {payload.value}")
+                elif payload.setting == "voice":
+                    result = self.voice_manager.set_voice(payload.value)
+                    if result["status"] == "success":
+                        logger.info(f"Voice preference updated to: {result['name']}")
+                    else:
+                        logger.warning(f"Failed to update voice preference: {result['message']}")
 
             elif payload.type == "tool_result":
                 if payload.call_id not in self.pending_tool_calls:
@@ -228,24 +243,33 @@ class GeminiOrchestrator:
         Keeps the Gemini Live API connection alive for the duration of this WebSocket.
         The `async with` block MUST stay open — the session closes when we exit it.
         """
+        # Retrieve recent chat history to restore context
+        history = self.tier2.get_recent_chat_history(limit=15)
+        history_context = ""
+        if history:
+            history_context = "\n\n[Previous Conversation History]:\n"
+            for msg in history:
+                role_label = "User" if msg["role"] == "user" else "Assistant"
+                history_context += f"{role_label}: {msg['text']}\n"
+        
+        full_system_instruction = self.system_instruction + history_context
+
         config = types.LiveConnectConfig(
             system_instruction=types.Content(
-                parts=[types.Part.from_text(text=self.system_instruction)]
+                parts=[types.Part.from_text(text=full_system_instruction)]
             ),
             tools=system_tools,
             response_modalities=["AUDIO"],
-            speech_config=types.SpeechConfig(
-                voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Aoede")
-                )
-            ),
+            speech_config=self.voice_manager.get_speech_config(),
             output_audio_transcription=types.AudioTranscriptionConfig(),
         )
+        
         try:
             async with self.client.aio.live.connect(
                 model="gemini-2.5-flash-native-audio-latest", config=config
             ) as session:
                 logger.info("Connected to Gemini Multimodal Live API.")
+                
                 self._session_ready.set()
 
                 send_task = asyncio.create_task(self._send_loop(session))
@@ -315,38 +339,55 @@ class GeminiOrchestrator:
 
     async def _receive_loop(self, session):
         """Receives streaming audio/transcription/tool-calls from Gemini and proxies to client."""
+        # Buffer to aggregate model transcription chunks during a turn
+        model_response_buffer = []
+
         try:
             async for response in session.receive():
-                sc = response.server_content
-                if sc is not None:
-                    # Audio chunks — primary output modality
-                    if sc.model_turn is not None:
-                        for part in sc.model_turn.parts:
-                            if part.inline_data is not None:
-                                if part.inline_data.mime_type.startswith("audio/pcm"):
-                                    await self.send_to_client(
-                                        ServerAudio(audio_bytes=part.inline_data.data)
-                                    )
-                            # Tool calls
-                            if part.function_call is not None:
-                                await self._dispatch_tool_call(part.function_call)
+                try:
+                    sc = response.server_content
+                    if sc is not None:
+                        # Audio chunks — primary output modality
+                        if sc.model_turn is not None:
+                            for part in sc.model_turn.parts:
+                                if part.inline_data is not None:
+                                    if part.inline_data.mime_type.startswith("audio/pcm"):
+                                        await self.send_to_client(
+                                            ServerAudio(audio_bytes=part.inline_data.data)
+                                        )
+                                # Tool calls
+                                if part.function_call is not None:
+                                    await self._dispatch_tool_call(part.function_call)
 
-                    # Transcription of the model's spoken audio
-                    if sc.output_transcription is not None:
-                        text = sc.output_transcription.text
-                        if text:
-                            await self.send_to_client(
-                                ServerText(text=text, is_chunk=True)
-                            )
+                        # Transcription of the model's spoken audio
+                        if sc.output_transcription is not None:
+                            text = sc.output_transcription.text
+                            if text:
+                                model_response_buffer.append(text)
+                                await self.send_to_client(
+                                    ServerText(text=text, is_chunk=True)
+                                )
+                            
+                        # If model turn finished, save the aggregated response to history
+                        if sc.turn_complete:
+                            full_text = "".join(model_response_buffer).strip()
+                            if full_text:
+                                logger.info(f"Recording assistant response to history: {full_text[:50]}...")
+                                self.tier2.record_chat_message(role="model", text=full_text)
+                            model_response_buffer = []
 
-                if response.tool_call is not None:
-                    for fn in response.tool_call.function_calls:
-                        await self._dispatch_tool_call(fn)
+                    if response.tool_call is not None:
+                        for fn in response.tool_call.function_calls:
+                            await self._dispatch_tool_call(fn)
+                except Exception as inner_e:
+                    logger.error(f"Error processing Gemini turn message: {inner_e}")
+                    # Don't let a single bad turn crash the whole loop
+                    continue
 
         except asyncio.CancelledError:
             logger.info("Receive loop cancelled.")
         except Exception as e:
-            logger.error(f"Receive loop error: {e}", exc_info=True)
+            logger.error(f"Receive loop fatal error: {e}", exc_info=True)
             await self.send_to_client(ServerError(error_msg=f"Receive Error: {str(e)}"))
 
     async def _dispatch_tool_call(self, fn):
