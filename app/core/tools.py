@@ -343,21 +343,47 @@ def set_system_volume(percent: int) -> Dict[str, Any]:
             "status": "error",
             "message": "Volume control is currently only supported on Linux/Ubuntu.",
         }
+    
+    # Attempt 1: pactl (PulseAudio/PipeWire standard)
     try:
-        # Using amixer to set pulse volume
         subprocess.run(
-            ["amixer", "-D", "pulse", "sset", "Master", f"{percent}%"],
+            ["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{percent}%"],
             check=True,
             capture_output=True,
         )
-        return {"status": "success", "message": f"Volume set to {percent}%"}
+        return {"status": "success", "message": f"Volume set to {percent}% via pactl."}
+    except Exception:
+        pass
+
+    # Attempt 2: wpctl (Modern PipeWire/WirePlumber)
+    try:
+        # wpctl uses fractional values (0.0 to 1.0)
+        vol_decimal = percent / 100.0
+        subprocess.run(
+            ["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{vol_decimal}"],
+            check=True,
+            capture_output=True,
+        )
+        return {"status": "success", "message": f"Volume set to {percent}% via wpctl."}
+    except Exception:
+        pass
+
+    # Attempt 3: amixer (ALSA fallback)
+    try:
+        # Removed "-D pulse" which was causing 'Invalid CTL pulse' errors
+        subprocess.run(
+            ["amixer", "sset", "Master", f"{percent}%"],
+            check=True,
+            capture_output=True,
+        )
+        return {"status": "success", "message": f"Volume set to {percent}% via amixer."}
     except subprocess.CalledProcessError as e:
         return {
             "status": "error",
-            "message": f"Failed to set volume: {e.stderr.decode()}",
+            "message": f"All volume control methods failed. Last error (amixer): {e.stderr.decode()}",
         }
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return {"status": "error", "message": f"Unexpected error setting volume: {str(e)}"}
 
 
 def set_system_brightness(percent: int) -> Dict[str, Any]:

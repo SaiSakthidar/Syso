@@ -51,7 +51,8 @@ def main():
             
         # Update client with real identity for cloud-aware backend
         # We use ?user_id= for the simple cloud architecture
-        client = SystemCaretakerClient("ws://34.14.201.124:8000/ws", on_log, on_chat_msg, user_id=uid)
+        ws_url = os.getenv("BACKEND_WS_URL", "ws://localhost:8000/ws")
+        client = SystemCaretakerClient(ws_url, on_log, on_chat_msg, user_id=uid)
         app.ws_client = client
         client.set_audio_pipeline(pipeline)
         
