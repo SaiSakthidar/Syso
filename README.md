@@ -1,14 +1,36 @@
 # Syso - AI System Caretaker
 
-Syso is an AI-powered system management agent that uses Gemini Multimodal Live API to control your computer via voice, text and video (through screen recording). It is a multi-tiered RAG system that customises to your needs over time and gives you real time updates on your system health. 
+Syso is an AI-powered system management agent that uses Gemini Multimodal Live API to control your computer via voice, text and video (via screen recording). It is a multi-tiered RAG system that customises to your needs over time and gives you real time updates on your system health. 
 
 ## Features 
-- Continuous system monitoring in the background.
-- Automatically alerts when ram, cpu, disk, network usage or storage thresholds meet/cross.
-- Changes system settings with just a voice command.
-- Remembers and learns over time system preferences of the user via advanced RAG infra.
-- Users can view a system dashboard whenever they enquire.
-- It can change your settings ranging from your theme preference to whether or not you'd like DND dueing meets. 
+1. Continuous system monitoring in the background.
+2. Automatically alerts system metrics cross a threshold. 
+3. Changes system settings with just a voice command.
+4. Remembers and learns over time system preferences of the user via advanced RAG infra.
+5. Users can view a system dashboard whenever they enquire.
+  
+### Functionalities 
+
+- high ram usage: RAM usage exceeds threshold
+- high cpu usage: CPU usage exceeds threshold
+- low storage: Disk space below threshold
+- high temperature: System temperature critical
+- heavy process detected: Individual process using excessive resources
+- brightness change: Display brightness adjustment suggestion
+- volume change: Audio volume adjustment suggestion
+- network usage high: Network bandwidth spike detected
+- battery low: Battery level critical
+- background app suggestion: Suggest closing background apps
+- theme_preference change: Auto-suggest dark/light theme based on time
+- notification fatigue: Too many notifications suggest muting
+- auto shutdown recommendation: Suggest scheduled shutdown
+- update available: OS or app updates available
+- malware scan suggestion: Suggest running security scan
+- connectivity issue: WiFi/network/bluetooth reliability problems
+
+## Architecture 
+
+<img width="1600" height="672" alt="image" src="https://github.com/user-attachments/assets/a0034451-3d98-470d-af6c-16316afdbb39" />
 
 ## Spin-up Instructions
 
