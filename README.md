@@ -5,7 +5,7 @@ Syso is an AI-powered system management agent that uses Gemini Multimodal Live A
 ## Features 
 - Continuous system monitoring in the background.
 - Automatically alerts when ram, cpu, disk, network usage or storage thresholds meet/cross.
-- Chnages system settings with just a voice command.
+- Changes system settings with just a voice command.
 - Remembers and learns over time system preferences of the user via advanced RAG infra.
 - Users can view a system dashboard whenever they enquire.
 - It can change your settings ranging from your theme preference to whether or not you'd like DND dueing meets. 
