@@ -647,6 +647,30 @@ def get_battery_status() -> Dict[str, Any]:
         return {"status": "error", "message": str(e)}
 
 
+def manage_airplane_mode(action: str) -> Dict[str, Any]:
+    """Toggles Airplane Mode by enabling/disabling all wireless radios."""
+    if sys.platform != "linux":
+        return {
+            "status": "error",
+            "message": "Airplane mode control is currently only supported on Linux/Ubuntu.",
+        }
+    try:
+        # airplane mode ON means radios OFF
+        nmcli_action = "off" if action == "on" else "on"
+        subprocess.run(
+            ["nmcli", "radio", "all", nmcli_action], check=True, capture_output=True
+        )
+        state = "enabled (radios off)" if action == "on" else "disabled (radios on)"
+        return {"status": "success", "message": f"Airplane mode {state}."}
+    except subprocess.CalledProcessError as e:
+        return {
+            "status": "error",
+            "message": f"Failed to toggle airplane mode: {e.stderr.decode()}",
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 # Dictionary matching schema names to functions
 LOCAL_TOOLS = {
     "get_system_health": get_system_health,

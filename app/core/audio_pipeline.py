@@ -64,6 +64,7 @@ class AudioPipeline:
         self.playback_queue = queue.Queue()
         self.is_playing = False
         self.volume = 1.0  # 0.0 to 1.0
+        self.follow_up_until = 0.0  # Timestamp until which we listen without wake word
 
     def start(self):
         self.running = True
@@ -162,8 +163,25 @@ class AudioPipeline:
 
                     if not self.is_recording:
                         bg_noise_rms = 0.9 * bg_noise_rms + 0.1 * rms
+                        
+                        # Follow-up logic: Trigger recording if speech detected within 30s of last response
+                        current_time = time.time()
+                        threshold = max(800.0, bg_noise_rms * silence_threshold_multiplier)
+                        
+                        if current_time < self.follow_up_until and rms >= threshold:
+                            self.on_log("SYSTEM", f"Speech detected during follow-up window (RMS: {rms:.0f}).")
+                            self.follow_up_until = 0.0 # reset window
+                            self.on_wake_word(True)
+                            self.interrupt_playback()
+                            self.is_recording = True
+                            stream_buffer = []
+                            silence_frames = 0
+                            idle_frames = 0
+                            total_recorded_frames = 0
+                            has_speech = True # Start immediately since we already hit threshold
+                        
                         result = self.porcupine.process(pcm_unpacked)
-                        if result >= 0:
+                        if result >= 0 and not self.is_recording:
                             # "Hello Syso" is loud → bg_noise_rms gets
                             # inflated right before recording starts, raising the
                             # threshold so high that subsequent speech doesn't
@@ -325,8 +343,11 @@ class AudioPipeline:
                             self.on_log("ERROR", f"PCM stream write error: {e}")
 
             except queue.Empty:
-                if self.playback_queue.empty() and self.is_playing:
+                if self.is_playing:
                     self.is_playing = False
+                    # Start 30s follow-up window when playback ends
+                    self.follow_up_until = time.time() + 30.0
+                    self.on_log("SYSTEM", "AI finished speaking. 30s follow-up window active.")
             except Exception as e:
                 self.on_log("ERROR", f"Playback thread error: {e}")
 

@@ -17,14 +17,13 @@ Event Types (Future System Monitoring - Not Yet Implemented):
 - network_usage_high: Network bandwidth spike detected
 - battery_low: Battery level critical
 - app_hang_detected: Application became unresponsive
-- disk_io_high: Disk read/write operations excessive
 - background_app_suggestion: Suggest closing background apps
 - theme_preference_change: Auto-suggest dark/light theme based on time
 - notification_fatigue: Too many notifications suggest muting
 - auto_shutdown_recommendation: Suggest scheduled shutdown
 - update_available: OS or app updates available
 - malware_scan_suggestion: Suggest running security scan
-- connectivity_issue: WiFi/network reliability problems
+- connectivity_issue: WiFi/network/bluetooth reliability problems
 """
 
 import json
