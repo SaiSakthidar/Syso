@@ -269,6 +269,21 @@ system_tools = [
                     required=["ssid"],
                 ),
             ),
+            types.FunctionDeclaration(
+                name="manage_airplane_mode",
+                description="Toggles Airplane Mode globally on the system (Ubuntu). Enables or disables all wireless radios (WiFi, Bluetooth).",
+                parameters=types.Schema(
+                    type="OBJECT",
+                    properties={
+                        "action": types.Schema(
+                            type="STRING",
+                            enum=["on", "off"],
+                            description="Whether to turn airplane mode 'on' (radios off) or 'off' (radios on).",
+                        ),
+                    },
+                    required=["action"],
+                ),
+            ),
         ]
     )
 ]

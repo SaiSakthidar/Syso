@@ -161,46 +161,41 @@ class AudioPipeline:
                         sum((x - mean) ** 2 for x in pcm_unpacked) / len(pcm_unpacked)
                     )
 
+                    silence_frames = 0
+                    current_time = time.time()
                     if not self.is_recording:
                         bg_noise_rms = 0.9 * bg_noise_rms + 0.1 * rms
                         
                         # Follow-up logic: Trigger recording if speech detected within 30s of last response
-                        current_time = time.time()
-                        threshold = max(800.0, bg_noise_rms * silence_threshold_multiplier)
+                        if current_time < self.follow_up_until:
+                            threshold = max(800.0, bg_noise_rms * silence_threshold_multiplier)
+                            if rms >= threshold:
+                                self.on_log("SYSTEM", f"Speech detected during follow-up UI window (RMS: {rms:.0f}).")
+                                self.follow_up_until = 0.0 # reset window
+                                self.is_recording = True
+                                stream_buffer = [pcm]
+                                silence_frames = 0
+                                idle_frames = 0
+                                total_recorded_frames = 1
+                                has_speech = True
+                            elif current_time + 0.1 > self.follow_up_until: # Almost timeout
+                                self.on_log("SYSTEM", "Follow-up window expired without speech. Leaving.")
+                                self.follow_up_until = 0.0
+                                self.on_wake_word(False)
                         
-                        if current_time < self.follow_up_until and rms >= threshold:
-                            self.on_log("SYSTEM", f"Speech detected during follow-up window (RMS: {rms:.0f}).")
-                            self.follow_up_until = 0.0 # reset window
-                            self.on_wake_word(True)
-                            self.interrupt_playback()
-                            self.is_recording = True
-                            stream_buffer = []
-                            silence_frames = 0
-                            idle_frames = 0
-                            total_recorded_frames = 0
-                            has_speech = True # Start immediately since we already hit threshold
-                        
-                        result = self.porcupine.process(pcm_unpacked)
-                        if result >= 0 and not self.is_recording:
-                            # "Hello Syso" is loud → bg_noise_rms gets
-                            # inflated right before recording starts, raising the
-                            # threshold so high that subsequent speech doesn't
-                            # register and silence_frames climbs immediately.
-                            # Deflate by 60% to recover a realistic ambient level.
-                            bg_noise_rms *= 0.4
-
-                            self.on_log(
-                                "SYSTEM",
-                                f"Wake word detected! (Adjusted ambient RMS: {bg_noise_rms:.0f})",
-                            )
-                            self.on_wake_word(True)
-                            self.interrupt_playback()
-                            self.is_recording = True
-                            stream_buffer = []
-                            silence_frames = 0
-                            idle_frames = 0
-                            total_recorded_frames = 0
-                            has_speech = False
+                        if not self.is_recording: # Only check for wake word if not already recording from follow-up
+                            result = self.porcupine.process(pcm_unpacked)
+                            if result >= 0:
+                                bg_noise_rms *= 0.4
+                                self.on_log("SYSTEM", f"Wake word detected! (Adjusted ambient RMS: {bg_noise_rms:.0f})")
+                                self.on_wake_word(True)
+                                self.interrupt_playback()
+                                self.is_recording = True
+                                stream_buffer = []
+                                silence_frames = 0
+                                idle_frames = 0
+                                total_recorded_frames = 0
+                                has_speech = False
                     else:
                         stream_buffer.append(pcm)
                         total_recorded_frames += 1
@@ -345,9 +340,10 @@ class AudioPipeline:
             except queue.Empty:
                 if self.is_playing:
                     self.is_playing = False
-                    # Start 30s follow-up window when playback ends
-                    self.follow_up_until = time.time() + 30.0
-                    self.on_log("SYSTEM", "AI finished speaking. 30s follow-up window active.")
+                    # Start 10s follow-up window when playback ends
+                    self.follow_up_until = time.time() + 10.0
+                    self.on_log("SYSTEM", "AI finished speaking. Opening mic for 10s follow-up.")
+                    self.on_wake_word(True) # Immediately show Listening...
             except Exception as e:
                 self.on_log("ERROR", f"Playback thread error: {e}")
 

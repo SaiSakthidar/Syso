@@ -67,6 +67,7 @@ class GeminiOrchestrator:
             "- disk_usage_scan: Scans for large files.\n"
             "- cleanup_disk: Cleans temp files.\n"
             "- manage_browser_tabs: Suspends or kills browser tabs.\n"
+            "- manage_airplane_mode: Toggles all wireless radios (Airplane Mode).\n"
             "- manage_background_services: Stops or restarts services.\n\n"
             "CONFIRMATION REQUIRED — CRITICAL RULE:\n"
             "The following tools are DESTRUCTIVE and will modify or delete data on the user's machine. "
@@ -227,8 +228,16 @@ class GeminiOrchestrator:
         await self._send_queue.put(("alert", alert_message))
 
     async def send_to_client(self, payload: WsServerPayload):
-        raw_bytes = serialize_server_payload(payload)
-        await self.websocket.send_bytes(raw_bytes)
+        try:
+            # Check if websocket is still open before trying to send
+            if self.websocket.client_state.name != "CONNECTED":
+                logger.warning("Attempted to send to client but WebSocket is not CONNECTED.")
+                return
+
+            raw_bytes = serialize_server_payload(payload)
+            await self.websocket.send_bytes(raw_bytes)
+        except Exception as e:
+            logger.error(f"Failed to send payload to client: {e}")
 
     async def close(self):
         if self._session_task:
@@ -388,7 +397,11 @@ class GeminiOrchestrator:
             logger.info("Receive loop cancelled.")
         except Exception as e:
             logger.error(f"Receive loop fatal error: {e}", exc_info=True)
-            await self.send_to_client(ServerError(error_msg=f"Receive Error: {str(e)}"))
+            # Try to notify client, but don't crash if websocket is already closed
+            try:
+                await self.send_to_client(ServerError(error_msg=f"Receive Error: {str(e)}"))
+            except Exception:
+                pass
 
     async def _dispatch_tool_call(self, fn):
         call_id = fn.id or str(uuid.uuid4())
