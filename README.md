@@ -3,10 +3,16 @@
 Syso is an AI-powered system management agent that uses Gemini Multimodal Live API to control your computer via voice, text and video (via screen recording). It is a multi-tiered RAG system that customises to your needs over time and gives you real time updates on your system health. 
 
 
-## Functionalities 
+## Features 
+1. Continuous system monitoring in the background.
+2. Automatically alerts system metrics cross a threshold. 
+3. Changes system settings with just a voice command.
+4. Remembers and learns over time system preferences of the user via advanced RAG infra.
+5. Users can view a system dashboard whenever they enquire.
+  
+### Functionalities 
 
-- high ram usage: RAM usage exceeds threshold
-- high cpu usage: CPU usage exceeds threshold
+- high ram/cpu usage: RAM/CPU usage exceeds threshold
 - low storage: Disk space below threshold
 - high temperature: System temperature critical
 - heavy process detected: Individual process using excessive resources
@@ -14,10 +20,8 @@ Syso is an AI-powered system management agent that uses Gemini Multimodal Live A
 - volume change: Audio volume adjustment suggestion
 - network usage high: Network bandwidth spike detected
 - battery low: Battery level critical
-- background app suggestion: Suggest closing background apps
 - theme_preference change: Auto-suggest dark/light theme based on time
 - notification fatigue: Too many notifications suggest muting
-- auto shutdown recommendation: Suggest scheduled shutdown
 - update available: OS or app updates available
 - malware scan suggestion: Suggest running security scan
 - connectivity issue: WiFi/network/bluetooth reliability problems
