@@ -32,7 +32,7 @@ DATA_PATH=./data
    ```
 
 ## How to Use
-1. **Wake Word:** Say "ハロシソ" (Hello Syso) to start listening.
+1. **Wake Word:** Say Hello Syso to start listening.
 
 ## Cloud Deployment (Terraform)
 1. **Init:** `cd terraform && terraform init`
