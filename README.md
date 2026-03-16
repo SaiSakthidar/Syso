@@ -33,8 +33,6 @@ DATA_PATH=./data
 
 ## How to Use
 1. **Wake Word:** Say "ハロシソ" (Hello Syso) to start listening.
-2. **Commands:** Ask Syso to scan wifi, check health, take screenshots, etc.
-3. **Follow-up:** After speaking, the mic stays active for **10 seconds**. Speak again to continue without the wake word.
 
 ## Cloud Deployment (Terraform)
 1. **Init:** `cd terraform && terraform init`
